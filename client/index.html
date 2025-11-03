@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MapID WebGIS</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1200px;
+    }
+
+    /* Auth Container */
+    #auth-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #auth-container.hidden {
+      display: none;
+    }
+
+    .auth-card {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      padding: 40px;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .auth-card h2 {
+      color: #333;
+      margin-bottom: 30px;
+      text-align: center;
+      font-size: 28px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      color: #555;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 5px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .form-group.hidden {
+      display: none;
+    }
+
+    .error {
+      color: #e74c3c;
+      font-size: 14px;
+      margin-top: 10px;
+      text-align: center;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    .toggle-text {
+      text-align: center;
+      margin-top: 20px;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .toggle-text a {
+      color: #667eea;
+      text-decoration: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .toggle-text a:hover {
+      text-decoration: underline;
+    }
+
+    /* Dashboard Container */
+    #dashboard-container {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      padding: 40px;
+      min-height: 100vh;
+    }
+
+    #dashboard-container.hidden {
+      display: none;
+    }
+
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 40px;
+      border-bottom: 2px solid #f0f0f0;
+      padding-bottom: 20px;
+    }
+
+    .dashboard-header h1 {
+      color: #333;
+      font-size: 28px;
+    }
+
+    #user-name {
+      color: #666;
+      font-size: 16px;
+    }
+
+    .dashboard-header button {
+      padding: 10px 20px;
+      background: #e74c3c;
+      border-radius: 5px;
+      font-size: 14px;
+      width: auto;
+    }
+
+    .dashboard-header button:hover {
+      background: #c0392b;
+    }
+
+    .dashboard-content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+    }
+
+    @media (max-width: 768px) {
+      .dashboard-content {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .dashboard-section h2 {
+      color: #333;
+      margin-bottom: 20px;
+      font-size: 20px;
+    }
+
+    .upload-area {
+      border: 2px dashed #667eea;
+      border-radius: 8px;
+      padding: 30px;
+      text-align: center;
+      background: #f8f9ff;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .upload-area:hover {
+      border-color: #764ba2;
+      background: #f0f1ff;
+    }
+
+    .upload-area p {
+      color: #666;
+      margin-bottom: 15px;
+    }
+
+    #upload-btn {
+      width: 100%;
+      padding: 12px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    #upload-btn:hover {
+      background: #764ba2;
+    }
+
+    #file-input {
+      display: none;
+    }
+
+    .layer-item {
+      display: flex;
+      align-items: center;
+      padding: 12px;
+      margin-bottom: 10px;
+      background: #f8f9fa;
+      border-radius: 5px;
+      border: 1px solid #e9ecef;
+    }
+
+    .layer-item input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      margin-right: 12px;
+      cursor: pointer;
+      accent-color: #667eea;
+    }
+
+    .layer-item label {
+      margin: 0;
+      cursor: pointer;
+      flex: 1;
+      color: #333;
+    }
+
+    .success {
+      background: #2ecc71;
+      color: white;
+      padding: 12px;
+      border-radius: 5px;
+      margin-top: 10px;
+      text-align: center;
+    }
+
+    #layers-list {
+      max-height: 500px;
+      overflow-y: auto;
+    }
+
+    .empty-state {
+      color: #999;
+      text-align: center;
+      padding: 40px 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Auth Container -->
+    <div id="auth-container">
+      <div class="auth-card">
+        <h2 id="auth-title">Login</h2>
+        <form id="auth-form">
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required>
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+          </div>
+          <div class="form-group hidden" id="name-group">
+            <label for="name">Full Name</label>
+            <input type="text" id="name" name="name">
+          </div>
+          <div class="error" id="form-error"></div>
+          <button type="submit">Login</button>
+        </form>
+        <div class="toggle-text" id="toggle-text">
+          Don't have an account? <a id="toggle-auth">Sign up</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Container -->
+    <div id="dashboard-container" class="hidden">
+      <div class="dashboard-header">
+        <div>
+          <h1>MapID WebGIS</h1>
+          <p id="user-name"></p>
+        </div>
+        <button id="logout-btn">Logout</button>
+      </div>
+
+      <div class="dashboard-content">
+        <!-- Upload Section -->
+        <div class="dashboard-section">
+          <h2>Upload Layer</h2>
+          <div class="upload-area">
+            <p>Upload GeoJSON files to create custom layers</p>
+            <button id="upload-btn">Choose File</button>
+            <input type="file" id="file-input" accept=".geojson,.json">
+            <p style="font-size: 12px; color: #999; margin-top: 10px;">
+              Supported format: GeoJSON (.geojson, .json)
+            </p>
+          </div>
+          <div class="error" id="upload-error"></div>
+        </div>
+
+        <!-- Layers List Section -->
+        <div class="dashboard-section">
+          <h2>Available Layers</h2>
+          <div id="layers-list">
+            <div class="empty-state">Loading layers...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

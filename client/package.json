@@ -1,0 +1,22 @@
+{
+  "name": "mapid-webgis-client",
+  "version": "1.0.0",
+  "description": "Frontend for MapID Web GIS Dashboard",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext ts,tsx",
+    "format": "prettier --write src"
+  },
+  "dependencies": {
+    "maplibre-gl": "^4.0.0",
+    "@turf/turf": "^7.0.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
