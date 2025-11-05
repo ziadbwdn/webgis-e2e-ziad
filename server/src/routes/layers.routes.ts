@@ -22,6 +22,22 @@ router.get(
   })
 );
 
+// GET /api/layers/all - Get all layers (default + user's)
+router.get(
+  '/all/list',
+  asyncHandler(async (req: Request, res: Response) => {
+    await LayersController.getAllLayers(req, res);
+  })
+);
+
+// GET /api/layers/user - Get only user's layers
+router.get(
+  '/user/list',
+  asyncHandler(async (req: Request, res: Response) => {
+    await LayersController.getUserLayers(req, res);
+  })
+);
+
 // GET /api/layers/:layerId/features
 router.get(
   '/:layerId/features',

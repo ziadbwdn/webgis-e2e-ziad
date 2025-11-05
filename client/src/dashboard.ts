@@ -17,7 +17,7 @@ interface Layer {
 }
 
 // API Configuration
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3000/api';
 
 class Dashboard {
   private map!: maplibregl.Map;
@@ -91,7 +91,7 @@ class Dashboard {
     // Add controls
     this.map.addControl(new maplibregl.NavigationControl(), 'top-left');
     this.map.addControl(new maplibregl.ScaleControl(), 'bottom-right');
-    this.map.addControl(new maplibregl.GeolocateControl(), 'top-left');
+    this.map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), 'top-left');
   }
 
   private initEventListeners() {
@@ -148,9 +148,17 @@ class Dashboard {
 
   private async loadDefaultLayers() {
     try {
-      const response = await this.apiRequest('/layers/default');
+      // Try to load all layers (default + user's), fallback to default only
+      let response;
+      try {
+        response = await this.apiRequest('/layers/all/list');
+      } catch (error) {
+        console.warn('Failed to load all layers, falling back to default layers');
+        response = await this.apiRequest('/layers/default');
+      }
+
       const layers = response.layers || response || [];
-      
+
       const layersList = document.getElementById('layers-list')!;
       layersList.innerHTML = '';
 
@@ -159,36 +167,63 @@ class Dashboard {
         return;
       }
 
-      layers.forEach((layer: Layer) => {
-        const label = document.createElement('label');
-        label.innerHTML = `
-          <input type="checkbox" value="${layer.id}" data-layer-name="${layer.name}">
-          <span>${layer.name}</span>
-        `;
+      // Group layers into default and user
+      const defaultLayers = layers.filter((l: Layer) => l.is_default);
+      const userLayers = layers.filter((l: Layer) => !l.is_default);
 
-        const checkbox = label.querySelector('input') as HTMLInputElement;
-        checkbox.addEventListener('change', async () => {
-          if (checkbox.checked) {
-            await this.addLayerToMap(layer.id, layer.name);
-          } else {
-            this.removeLayerFromMap(layer.id);
-          }
+      // Render default layers
+      if (defaultLayers.length > 0) {
+        const defaultHeader = document.createElement('div');
+        defaultHeader.style.cssText = 'padding: 10px 0; font-weight: 600; color: #666; font-size: 12px; margin-top: 10px; margin-bottom: 5px;';
+        defaultHeader.textContent = 'DEFAULT LAYERS';
+        layersList.appendChild(defaultHeader);
+
+        defaultLayers.forEach((layer: Layer) => {
+          this.createLayerCheckbox(layersList, layer);
         });
+      }
 
-        layersList.appendChild(label);
-      });
+      // Render user layers
+      if (userLayers.length > 0) {
+        const userHeader = document.createElement('div');
+        userHeader.style.cssText = 'padding: 10px 0; font-weight: 600; color: #666; font-size: 12px; margin-top: 15px; margin-bottom: 5px;';
+        userHeader.textContent = 'MY LAYERS';
+        layersList.appendChild(userHeader);
+
+        userLayers.forEach((layer: Layer) => {
+          this.createLayerCheckbox(layersList, layer);
+        });
+      }
     } catch (error) {
       console.error('Failed to load layers:', error);
-      document.getElementById('layers-list')!.innerHTML = 
+      document.getElementById('layers-list')!.innerHTML =
         '<div class="empty-state">Failed to load layers</div>';
     }
   }
 
-  private async addLayerToMap(layerId: number, layerName: string) {
+  private createLayerCheckbox(container: HTMLElement, layer: Layer) {
+    const label = document.createElement('label');
+    label.innerHTML = `
+      <input type="checkbox" value="${layer.id}" data-layer-name="${layer.name}">
+      <span>${layer.name}</span>
+    `;
+
+    const checkbox = label.querySelector('input') as HTMLInputElement;
+    checkbox.addEventListener('change', async () => {
+      if (checkbox.checked) {
+        await this.addLayerToMap(layer.id, layer.name);
+      } else {
+        this.removeLayerFromMap(layer.id);
+      }
+    });
+
+    container.appendChild(label);
+  }
+
+  private async addLayerToMap(layerId: number, _layerName: string) {
     try {
       const geojson = await this.apiRequest(`/layers/${layerId}/features`);
       const sourceId = `layer-${layerId}`;
-      const layerIdStr = `layer-${layerId}-line`;
       const color = this.layerColors[this.activeLayers.size % this.layerColors.length];
 
       // Add source
@@ -197,16 +232,76 @@ class Dashboard {
         data: geojson
       });
 
-      // Add layer
-      this.map.addLayer({
-        id: layerIdStr,
-        type: 'line',
-        source: sourceId,
-        paint: {
-          'line-color': color,
-          'line-width': 2
-        }
-      });
+      // Determine geometry type from first feature
+      const geometryType = geojson.features?.[0]?.geometry?.type;
+
+      // Add layer(s) based on geometry type
+      switch (geometryType) {
+        case 'Point':
+        case 'MultiPoint':
+          this.map.addLayer({
+            id: `layer-${layerId}-point`,
+            type: 'circle',
+            source: sourceId,
+            paint: {
+              'circle-radius': 6,
+              'circle-color': color,
+              'circle-stroke-width': 2,
+              'circle-stroke-color': '#fff'
+            }
+          });
+          break;
+
+        case 'LineString':
+        case 'MultiLineString':
+          this.map.addLayer({
+            id: `layer-${layerId}-line`,
+            type: 'line',
+            source: sourceId,
+            paint: {
+              'line-color': color,
+              'line-width': 2
+            }
+          });
+          break;
+
+        case 'Polygon':
+        case 'MultiPolygon':
+          // Add fill layer for polygon
+          this.map.addLayer({
+            id: `layer-${layerId}-fill`,
+            type: 'fill',
+            source: sourceId,
+            paint: {
+              'fill-color': color,
+              'fill-opacity': 0.5
+            }
+          });
+          // Add stroke layer for polygon borders
+          this.map.addLayer({
+            id: `layer-${layerId}-stroke`,
+            type: 'line',
+            source: sourceId,
+            paint: {
+              'line-color': color,
+              'line-width': 2
+            }
+          });
+          break;
+
+        default:
+          console.warn(`Unsupported geometry type: ${geometryType}`);
+          // Fallback to line if unknown
+          this.map.addLayer({
+            id: `layer-${layerId}-line`,
+            type: 'line',
+            source: sourceId,
+            paint: {
+              'line-color': color,
+              'line-width': 2
+            }
+          });
+      }
 
       this.activeLayers.set(layerId, color);
       this.updateLegend();
@@ -219,11 +314,22 @@ class Dashboard {
 
   private removeLayerFromMap(layerId: number) {
     const sourceId = `layer-${layerId}`;
-    const layerIdStr = `layer-${layerId}-line`;
 
-    if (this.map.getLayer(layerIdStr)) {
-      this.map.removeLayer(layerIdStr);
-    }
+    // Remove all possible layer types for this source
+    const layerIds = [
+      `layer-${layerId}-point`,
+      `layer-${layerId}-line`,
+      `layer-${layerId}-fill`,
+      `layer-${layerId}-stroke`
+    ];
+
+    layerIds.forEach(layerId => {
+      if (this.map.getLayer(layerId)) {
+        this.map.removeLayer(layerId);
+      }
+    });
+
+    // Remove source
     if (this.map.getSource(sourceId)) {
       this.map.removeSource(sourceId);
     }

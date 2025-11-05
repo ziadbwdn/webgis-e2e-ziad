@@ -6,7 +6,7 @@ interface User {
   full_name: string;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3000/api';
 
 // DOM elements
 const authForm = document.getElementById('auth-form')!;
@@ -85,7 +85,7 @@ async function handleAuth(e: Event) {
       // After registration, switch to login
       alert('Registration successful! Please login.');
       toggleAuthMode();
-      authForm.reset();
+      (authForm as HTMLFormElement).reset();
     }
 
   } catch (error) {

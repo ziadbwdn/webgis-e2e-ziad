@@ -11,6 +11,34 @@ export class LayersController {
     });
   }
 
+  static async getAllLayers(req: Request, res: Response): Promise<void> {
+    const userId = req.userId;
+
+    if (!userId) {
+      throw new AppError(401, 'User ID not found in request');
+    }
+
+    const layers = await LayerModel.getAllLayersForUser(userId);
+
+    res.status(200).json({
+      layers,
+    });
+  }
+
+  static async getUserLayers(req: Request, res: Response): Promise<void> {
+    const userId = req.userId;
+
+    if (!userId) {
+      throw new AppError(401, 'User ID not found in request');
+    }
+
+    const layers = await LayerModel.getUserLayers(userId);
+
+    res.status(200).json({
+      layers,
+    });
+  }
+
   static async getLayerFeatures(req: Request, res: Response): Promise<void> {
     const { layerId } = req.params;
     const id = parseInt(layerId, 10);
@@ -39,29 +67,39 @@ export class LayersController {
       throw new AppError(400, 'Invalid GeoJSON structure');
     }
 
+    if (geojson.features.length === 0) {
+      throw new AppError(400, 'GeoJSON must contain at least one feature');
+    }
+
     // Determine geometry type from first feature
-    let type = 'unknown';
-    if (geojson.features.length > 0) {
-      const firstGeometry = geojson.features[0].geometry;
-      type = firstGeometry.type.toLowerCase();
+    const firstGeometry = geojson.features[0].geometry;
+    const type = firstGeometry.type.toLowerCase();
+
+    // Use transaction: create layer and insert features atomically
+    try {
+      const layer = await LayerModel.createLayerWithFeatures(
+        name,
+        description,
+        type,
+        userId || null,
+        geojson.features
+      );
+
+      res.status(201).json({
+        layer: {
+          id: layer.id,
+          name: layer.name,
+          description: layer.description,
+          type: layer.type,
+          created_by: layer.created_by,
+          feature_count: geojson.features.length,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('transaction')) {
+        throw new AppError(500, 'Failed to upload layer. Database transaction failed.');
+      }
+      throw error;
     }
-
-    // Create layer
-    const layer = await LayerModel.createLayer(name, description, type, userId || null);
-
-    // Insert features
-    if (geojson.features.length > 0) {
-      await LayerModel.insertFeatures(layer.id, geojson.features);
-    }
-
-    res.status(201).json({
-      layer: {
-        id: layer.id,
-        name: layer.name,
-        description: layer.description,
-        type: layer.type,
-        created_by: layer.created_by,
-      },
-    });
   }
 }
