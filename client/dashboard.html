@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MapID WebGIS Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
+
+    /* Main Layout: Sidebar + Map */
+    .app-container {
+      display: grid;
+      grid-template-columns: 250px 1fr;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* LEFT SIDEBAR */
+    .sidebar {
+      background: #2c3e50;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      padding: 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .sidebar-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .user-info {
+      font-size: 13px;
+      color: #bdc3c7;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 10px 0;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      padding: 12px 20px;
+      color: #ecf0f1;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .nav-item:hover {
+      background: rgba(255,255,255,0.1);
+    }
+
+    .nav-item.active {
+      background: #34495e;
+      border-left: 3px solid #3498db;
+    }
+
+    .nav-item .icon {
+      margin-right: 12px;
+      font-size: 18px;
+    }
+
+    .sidebar-footer {
+      padding: 20px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .btn-logout {
+      width: 100%;
+      padding: 10px;
+      background: #e74c3c;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .btn-logout:hover {
+      background: #c0392b;
+    }
+
+    .btn-upload {
+      width: 100%;
+      padding: 10px;
+      background: #27ae60;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+
+    .btn-upload:hover {
+      background: #229954;
+    }
+
+    /* MAIN CONTENT: Map */
+    .main-content {
+      position: relative;
+      height: 100vh;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* RIGHT CONTROL PANEL (Overlay) */
+    .control-panel {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 280px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      z-index: 1000;
+    }
+
+    .panel-section {
+      padding: 16px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .panel-section:last-child {
+      border-bottom: none;
+    }
+
+    .panel-section h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #2c3e50;
+    }
+
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      padding: 8px 0;
+      cursor: pointer;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .checkbox-group input {
+      margin-right: 8px;
+      cursor: pointer;
+    }
+
+    .radio-group label {
+      display: flex;
+      align-items: center;
+      padding: 8px 0;
+      cursor: pointer;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .radio-group input {
+      margin-right: 8px;
+      cursor: pointer;
+    }
+
+    .empty-state {
+      color: #999;
+      font-size: 13px;
+      text-align: center;
+      padding: 20px;
+    }
+
+    /* Legend */
+    .legend {
+      font-size: 13px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .legend-color {
+      width: 20px;
+      height: 12px;
+      margin-right: 8px;
+      border-radius: 2px;
+    }
+
+    /* Hidden file input */
+    #file-input {
+      display: none;
+    }
+
+    /* Success message */
+    .success-msg {
+      background: #27ae60;
+      color: white;
+      padding: 12px;
+      border-radius: 4px;
+      margin: 10px 20px;
+      text-align: center;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>MapLibreGIS</h2>
+        <p class="user-info">Welcome, <span id="user-name">User</span></p>
+      </div>
+      
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-page="map">
+          <span class="icon">🗺️</span>
+          <span>Map</span>
+        </a>
+        <a href="#" class="nav-item" data-page="geolocation">
+          <span class="icon">📍</span>
+          <span>Geolocation</span>
+        </a>
+        <a href="#" class="nav-item" data-page="glossary">
+          <span class="icon">📚</span>
+          <span>Glossary</span>
+        </a>
+        <a href="#" class="nav-item" data-page="statistics">
+          <span class="icon">📊</span>
+          <span>Statistics</span>
+        </a>
+        <a href="#" class="nav-item" data-page="reports">
+          <span class="icon">📄</span>
+          <span>Reports</span>
+        </a>
+        <a href="#" class="nav-item" data-page="downloads">
+          <span class="icon">⬇️</span>
+          <span>Downloads</span>
+        </a>
+      </nav>
+      
+      <div class="sidebar-footer">
+        <button id="upload-layer-btn" class="btn-upload">+ Upload Layer</button>
+        <input type="file" id="file-input" accept=".geojson,.json">
+        <button id="logout-btn" class="btn-logout">Logout</button>
+      </div>
+    </aside>
+    
+    <!-- MAIN CONTENT: Map -->
+    <main class="main-content">
+      <div id="map"></div>
+      
+      <!-- RIGHT CONTROL PANEL -->
+      <div class="control-panel">
+        
+        <!-- Base Layer Selector -->
+        <div class="panel-section">
+          <h3>Base layer</h3>
+          <div class="radio-group">
+            <label>
+              <input type="radio" name="basemap" value="osm" checked>
+              <span>Open Street Map</span>
+            </label>
+            <label>
+              <input type="radio" name="basemap" value="arcgis-street">
+              <span>ArcGIS - World Street Map</span>
+            </label>
+            <label>
+              <input type="radio" name="basemap" value="arcgis-imagery">
+              <span>ArcGIS - World Imagery</span>
+            </label>
+            <label>
+              <input type="radio" name="basemap" value="arcgis-topo">
+              <span>ArcGIS - World Topo Map</span>
+            </label>
+          </div>
+        </div>
+        
+        <!-- Layer Controls -->
+        <div class="panel-section">
+          <h3>Layers</h3>
+          <div id="layers-list" class="checkbox-group">
+            <div class="empty-state">Loading layers...</div>
+          </div>
+        </div>
+        
+        <!-- Legend (placeholder) -->
+        <div class="panel-section">
+          <h3>Legend</h3>
+          <div id="legend" class="legend">
+            <div class="empty-state">No active layers</div>
+          </div>
+        </div>
+        
+      </div>
+    </main>
+    
+  </div>
+
+  <script type="module" src="/src/dashboard.ts"></script>
+</body>
+</html>
