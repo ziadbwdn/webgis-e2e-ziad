@@ -6,6 +6,7 @@ import { serverConfig } from './config/database.config';
 import { errorHandler } from './middleware/error.middleware';
 import authRoutes from './routes/auth.routes';
 import layersRoutes from './routes/layers.routes';
+import analysisRoutes from './routes/analysis.routes';
 
 // Load environment variables
 dotenv.config();
@@ -31,6 +32,7 @@ app.get('/health', (req: Request, res: Response) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/layers', layersRoutes);
+app.use('/api/analysis', analysisRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

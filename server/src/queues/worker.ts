@@ -20,16 +20,16 @@ export const analysisWorker = new Worker<JobData>(
 
     switch (job.name) {
       case JobType.BUFFER:
-        return await handleBufferJob(job.data as any, job);
+        return await handleBufferJob(job.data as any, job as any);
 
       case JobType.CLIP:
-        return await handleClipJob(job.data as any, job);
+        return await handleClipJob(job.data as any, job as any);
 
       case JobType.INTERSECT:
-        return await handleIntersectJob(job.data as any, job);
+        return await handleIntersectJob(job.data as any, job as any);
 
       case JobType.UNION:
-        return await handleUnionJob(job.data as any, job);
+        return await handleUnionJob(job.data as any, job as any);
 
       default:
         throw new Error(`Unknown job type: ${job.name}`);
@@ -85,27 +85,25 @@ analysisWorker.on('failed', async (job: Job | undefined, err: Error) => {
   try {
     console.error(`[Worker] Job ${job.id} failed:`, err.message);
 
-    // Update job record in database
-    await pool.query(
-      `UPDATE jobs
-       SET status = 'failed',
-           error_message = $1,
-           completed_at = NOW()
-       WHERE id = $2`,
-      [err.message, job.id]
-    );
+    // Check if job will retry
+    if (job.attemptsMade < (job.opts.attempts || 0)) {
+      console.warn(`[Worker] Job ${job.id} will retry (attempt ${job.attemptsMade}/${job.opts.attempts})`);
+    } else {
+      // Only update database if this is the final failure
+      await pool.query(
+        `UPDATE jobs
+         SET status = 'failed',
+             error_message = $1,
+             completed_at = NOW()
+         WHERE id = $2`,
+        [err.message, job.id]
+      );
 
-    console.log(`[Worker] Job ${job.id} failure recorded in database`);
+      console.log(`[Worker] Job ${job.id} failure recorded in database`);
+    }
   } catch (dbError) {
     console.error(`[Worker] Failed to record job failure for ${job.id}:`, dbError);
   }
-});
-
-/**
- * Handle job retry
- */
-analysisWorker.on('retry', (job: Job, err: Error) => {
-  console.warn(`[Worker] Job ${job.id} will retry due to error:`, err.message);
 });
 
 /**
