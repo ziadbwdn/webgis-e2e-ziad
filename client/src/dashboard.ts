@@ -1,5 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { AnalysisPanel } from './components/analysis-panel';
 
 // Types
 interface User {
@@ -25,6 +26,24 @@ class Dashboard {
   private currentUser: User | null = null;
   private activeLayers: Map<number, string> = new Map();
   private layerColors: string[] = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
+  private analysisPanel: AnalysisPanel | null = null;
+  private leftSidebarCollapsed: boolean = false;
+  private rightPanelCollapsed: boolean = false;
+
+  // Map tools state
+  private activeTool: string | null = null;
+  private drawingFeatures: GeoJSON.Feature[] = [];
+  private measurementPoints: number[][] = [];
+  private measurementMarkers: maplibregl.Marker[] = [];
+  private editMode: boolean = false;
+
+  // Event handler references for cleanup
+  private mapClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
+  private mapDblClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
+
+  // Drawing state
+  private currentDrawCoordinates: number[][] = [];
+  private currentDrawMarkers: maplibregl.Marker[] = [];
 
   constructor() {
     this.init();
@@ -40,8 +59,148 @@ class Dashboard {
     // Initialize components
     this.displayUserInfo();
     this.initMap();
+    this.initAnalysisPanel();
     this.initEventListeners();
+    this.initCollapsibleSidebars();
+    this.initTabs();
+    this.initMapTools();
+    this.loadSidebarState();
     await this.loadDefaultLayers();
+  }
+
+  private initAnalysisPanel() {
+    if (!this.authToken) return;
+
+    // Create and mount analysis panel
+    this.analysisPanel = new AnalysisPanel(this.authToken);
+    const panelElement = this.analysisPanel.render();
+    document.body.appendChild(panelElement);
+
+    // Connect result visualization callback
+    this.analysisPanel.setOnResultCreated((layerId) => {
+      this.loadResultLayer(layerId);
+    });
+  }
+
+  /**
+   * Load and display analysis result layer on map
+   */
+  private async loadResultLayer(layerId: number) {
+    try {
+      console.log(`Loading result layer ${layerId} to map...`);
+
+      // Fetch features directly (no need for layer metadata endpoint)
+      const featuresResponse = await this.apiRequest(`/layers/${layerId}/features`);
+
+      if (!featuresResponse || !featuresResponse.features || featuresResponse.features.length === 0) {
+        console.error('No features found for result layer');
+        return;
+      }
+
+      const sourceId = `layer-${layerId}`;
+      const fillLayerId = `${sourceId}-fill`;
+      const outlineLayerId = `${sourceId}-outline`;
+
+      // Remove existing layers/sources if they exist
+      if (this.map.getLayer(outlineLayerId)) {
+        this.map.removeLayer(outlineLayerId);
+      }
+      if (this.map.getLayer(fillLayerId)) {
+        this.map.removeLayer(fillLayerId);
+      }
+      if (this.map.getSource(sourceId)) {
+        this.map.removeSource(sourceId);
+      }
+
+      // Add source
+      this.map.addSource(sourceId, {
+        type: 'geojson',
+        data: featuresResponse
+      });
+
+      // Get a color for this layer (use result layer color - orange)
+      const fillColor = '#e67e22'; // Result layer color
+      const outlineColor = '#d35400';
+
+      // Add fill layer with 50% opacity
+      this.map.addLayer({
+        id: fillLayerId,
+        type: 'fill',
+        source: sourceId,
+        paint: {
+          'fill-color': fillColor,
+          'fill-opacity': 0.5
+        }
+      });
+
+      // Add outline layer
+      this.map.addLayer({
+        id: outlineLayerId,
+        type: 'line',
+        source: sourceId,
+        paint: {
+          'line-color': outlineColor,
+          'line-width': 2
+        }
+      });
+
+      this.activeLayers.set(layerId, sourceId);
+
+      // Zoom to layer bounds
+      const bounds = this.calculateBounds(featuresResponse);
+      if (bounds) {
+        this.map.fitBounds(bounds, { padding: 50 });
+      }
+
+      console.log(`Result layer ${layerId} displayed on map with ${featuresResponse.features.length} features`);
+
+      // Reload layer list to show new result layer
+      await this.loadDefaultLayers();
+    } catch (error) {
+      console.error('Failed to load result layer:', error);
+    }
+  }
+
+  /**
+   * Calculate bounds from GeoJSON
+   */
+  private calculateBounds(geojson: any): [[number, number], [number, number]] | null {
+    if (!geojson.features || geojson.features.length === 0) return null;
+
+    let minLng = Infinity, minLat = Infinity;
+    let maxLng = -Infinity, maxLat = -Infinity;
+
+    geojson.features.forEach((feature: any) => {
+      const coords = this.extractCoordinates(feature.geometry);
+      coords.forEach(([lng, lat]: [number, number]) => {
+        minLng = Math.min(minLng, lng);
+        minLat = Math.min(minLat, lat);
+        maxLng = Math.max(maxLng, lng);
+        maxLat = Math.max(maxLat, lat);
+      });
+    });
+
+    return [[minLng, minLat], [maxLng, maxLat]];
+  }
+
+  /**
+   * Extract all coordinates from geometry
+   */
+  private extractCoordinates(geometry: any): [number, number][] {
+    if (geometry.type === 'Point') {
+      return [geometry.coordinates];
+    } else if (geometry.type === 'LineString') {
+      return geometry.coordinates;
+    } else if (geometry.type === 'Polygon') {
+      return geometry.coordinates[0];
+    } else if (geometry.type === 'MultiPoint') {
+      return geometry.coordinates;
+    } else if (geometry.type === 'MultiLineString') {
+      return geometry.coordinates.flat();
+    } else if (geometry.type === 'MultiPolygon') {
+      return geometry.coordinates.flat(2);
+    }
+    return [];
   }
 
   private loadAuthState(): boolean {
@@ -108,6 +267,14 @@ class Dashboard {
         e.preventDefault();
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         item.classList.add('active');
+
+        // Handle page navigation
+        const page = item.getAttribute('data-page');
+        if (page === 'spatial-analysis' && this.analysisPanel) {
+          this.analysisPanel.show();
+        } else if (this.analysisPanel) {
+          this.analysisPanel.hide();
+        }
       });
     });
 
@@ -127,6 +294,523 @@ class Dashboard {
     document.getElementById('file-input')!.addEventListener('change', (e) => {
       this.handleFileUpload(e);
     });
+  }
+
+  private initCollapsibleSidebars() {
+    // Left sidebar toggle
+    const leftSidebar = document.getElementById('left-sidebar')!;
+    const toggleLeftBtn = document.getElementById('toggle-left-sidebar')!;
+
+    toggleLeftBtn.addEventListener('click', () => {
+      this.leftSidebarCollapsed = !this.leftSidebarCollapsed;
+      leftSidebar.classList.toggle('collapsed', this.leftSidebarCollapsed);
+      this.saveSidebarState();
+
+      // Update button icon
+      const icon = toggleLeftBtn.querySelector('.icon')!;
+      icon.textContent = this.leftSidebarCollapsed ? '▶' : '◀';
+    });
+
+    // Right panel toggle
+    const rightPanel = document.getElementById('right-panel')!;
+    const toggleRightBtn = document.getElementById('toggle-right-panel')!;
+
+    toggleRightBtn.addEventListener('click', () => {
+      this.rightPanelCollapsed = !this.rightPanelCollapsed;
+      rightPanel.classList.toggle('collapsed', this.rightPanelCollapsed);
+      this.saveSidebarState();
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Press '[' to toggle left sidebar
+      if (e.key === '[') {
+        toggleLeftBtn.click();
+      }
+      // Press ']' to toggle right panel
+      if (e.key === ']') {
+        toggleRightBtn.click();
+      }
+    });
+  }
+
+  private saveSidebarState() {
+    localStorage.setItem('leftSidebarCollapsed', String(this.leftSidebarCollapsed));
+    localStorage.setItem('rightPanelCollapsed', String(this.rightPanelCollapsed));
+  }
+
+  private loadSidebarState() {
+    // Restore previous state
+    const leftCollapsed = localStorage.getItem('leftSidebarCollapsed') === 'true';
+    const rightCollapsed = localStorage.getItem('rightPanelCollapsed') === 'true';
+
+    if (leftCollapsed) {
+      document.getElementById('toggle-left-sidebar')!.click();
+    }
+    if (rightCollapsed) {
+      document.getElementById('toggle-right-panel')!.click();
+    }
+  }
+
+  private initTabs() {
+    // Tab switching functionality
+    const tabHeaders = document.querySelectorAll('.tab-header');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabHeaders.forEach(header => {
+      header.addEventListener('click', () => {
+        const targetTab = header.getAttribute('data-tab');
+
+        // Remove active class from all headers and contents
+        tabHeaders.forEach(h => h.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+
+        // Add active class to clicked header and corresponding content
+        header.classList.add('active');
+        document.getElementById(targetTab!)?.classList.add('active');
+      });
+    });
+  }
+
+  private initMapTools() {
+    // Distance measurement
+    document.getElementById('measure-distance-btn')!.addEventListener('click', () => {
+      this.toggleTool('measure-distance');
+    });
+
+    // Drawing tools
+    document.getElementById('draw-point-btn')!.addEventListener('click', () => {
+      this.toggleTool('draw-point');
+    });
+
+    document.getElementById('draw-line-btn')!.addEventListener('click', () => {
+      this.toggleTool('draw-line');
+    });
+
+    document.getElementById('draw-polygon-btn')!.addEventListener('click', () => {
+      this.toggleTool('draw-polygon');
+    });
+
+    document.getElementById('edit-features-btn')!.addEventListener('click', () => {
+      this.toggleTool('edit-features');
+    });
+
+    // Clear all drawings
+    document.getElementById('clear-drawings-btn')!.addEventListener('click', () => {
+      this.clearAllDrawings();
+    });
+
+    // Map export
+    document.getElementById('export-map-btn')!.addEventListener('click', () => {
+      this.exportMap();
+    });
+
+    // Initialize drawing sources and layers
+    this.map.on('load', () => {
+      this.initDrawingSources();
+    });
+  }
+
+  private toggleTool(tool: string) {
+    const toolButtons = document.querySelectorAll('.tool-btn:not(.tool-btn-danger)');
+
+    // If clicking same tool, deactivate it
+    if (this.activeTool === tool) {
+      this.deactivateCurrentTool();
+      return;
+    }
+
+    // Deactivate previous tool first
+    this.deactivateCurrentTool();
+
+    // Activate new tool
+    this.activeTool = tool;
+    toolButtons.forEach(btn => btn.classList.remove('active'));
+    document.getElementById(`${tool}-btn`)?.classList.add('active');
+
+    // Set cursor and handlers based on tool
+    switch (tool) {
+      case 'measure-distance':
+        this.map.getCanvas().style.cursor = 'crosshair';
+        this.startMeasurement();
+        break;
+      case 'draw-point':
+      case 'draw-line':
+      case 'draw-polygon':
+        this.map.getCanvas().style.cursor = 'crosshair';
+        this.startDrawing(tool);
+        break;
+      case 'edit-features':
+        this.map.getCanvas().style.cursor = 'pointer';
+        this.startEditing();
+        break;
+    }
+  }
+
+  private deactivateCurrentTool() {
+    // Remove event handlers
+    if (this.mapClickHandler) {
+      this.map.off('click', this.mapClickHandler);
+      this.mapClickHandler = null;
+    }
+    if (this.mapDblClickHandler) {
+      this.map.off('dblclick', this.mapDblClickHandler);
+      this.mapDblClickHandler = null;
+    }
+
+    // Clean up drawing state
+    this.currentDrawMarkers.forEach(m => m.remove());
+    this.currentDrawMarkers = [];
+    this.currentDrawCoordinates = [];
+
+    // Clear active states
+    this.activeTool = null;
+    document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+    this.map.getCanvas().style.cursor = '';
+  }
+
+  private initDrawingSources() {
+    // Add source for drawings if not exists
+    if (!this.map.getSource('drawings')) {
+      this.map.addSource('drawings', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: this.drawingFeatures
+        }
+      });
+
+      // Add layers for different geometry types
+      this.map.addLayer({
+        id: 'drawings-fill',
+        type: 'fill',
+        source: 'drawings',
+        filter: ['==', '$type', 'Polygon'],
+        paint: {
+          'fill-color': '#088',
+          'fill-opacity': 0.4
+        }
+      });
+
+      this.map.addLayer({
+        id: 'drawings-line',
+        type: 'line',
+        source: 'drawings',
+        filter: ['in', '$type', 'LineString', 'Polygon'],
+        paint: {
+          'line-color': '#088',
+          'line-width': 3
+        }
+      });
+
+      this.map.addLayer({
+        id: 'drawings-point',
+        type: 'circle',
+        source: 'drawings',
+        filter: ['==', '$type', 'Point'],
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#088',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#fff'
+        }
+      });
+    }
+
+    // Add source for measurement line
+    if (!this.map.getSource('measurement-line')) {
+      this.map.addSource('measurement-line', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: []
+        }
+      });
+
+      this.map.addLayer({
+        id: 'measurement-line',
+        type: 'line',
+        source: 'measurement-line',
+        paint: {
+          'line-color': '#f00',
+          'line-width': 3,
+          'line-dasharray': [2, 2]
+        }
+      });
+    }
+  }
+
+  private startMeasurement() {
+    this.measurementPoints = [];
+    this.clearMeasurement();
+
+    this.mapClickHandler = (e: maplibregl.MapMouseEvent) => {
+      if (this.activeTool !== 'measure-distance') return;
+
+      this.measurementPoints.push([e.lngLat.lng, e.lngLat.lat]);
+
+      // Add marker
+      const el = document.createElement('div');
+      el.className = 'measurement-marker';
+      el.style.cssText = 'background: red; width: 10px; height: 10px; border-radius: 50%; border: 2px solid white;';
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat(e.lngLat)
+        .addTo(this.map);
+
+      this.measurementMarkers.push(marker);
+
+      // Update line
+      if (this.measurementPoints.length > 1) {
+        const lineSource = this.map.getSource('measurement-line') as maplibregl.GeoJSONSource;
+        lineSource.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: this.measurementPoints
+            },
+            properties: {}
+          }]
+        });
+
+        // Calculate and display distance
+        const distance = this.calculateDistance(this.measurementPoints);
+        const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
+          .setLngLat(e.lngLat)
+          .setHTML(`<div style="padding: 5px; font-size: 12px;"><strong>Distance:</strong> ${distance.toFixed(2)} km</div>`)
+          .addTo(this.map);
+      }
+    };
+
+    this.map.on('click', this.mapClickHandler);
+  }
+
+  private calculateDistance(coordinates: number[][]): number {
+    let totalDistance = 0;
+    for (let i = 0; i < coordinates.length - 1; i++) {
+      const [lng1, lat1] = coordinates[i];
+      const [lng2, lat2] = coordinates[i + 1];
+
+      // Haversine formula
+      const R = 6371; // Earth's radius in km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      totalDistance += R * c;
+    }
+    return totalDistance;
+  }
+
+  private clearMeasurement() {
+    this.measurementMarkers.forEach(marker => marker.remove());
+    this.measurementMarkers = [];
+    this.measurementPoints = [];
+
+    const lineSource = this.map.getSource('measurement-line') as maplibregl.GeoJSONSource;
+    if (lineSource) {
+      lineSource.setData({
+        type: 'FeatureCollection',
+        features: []
+      });
+    }
+  }
+
+  private startDrawing(tool: string) {
+    // Reset drawing state
+    this.currentDrawCoordinates = [];
+    this.currentDrawMarkers = [];
+
+    this.mapClickHandler = (e: maplibregl.MapMouseEvent) => {
+      if (!this.activeTool || !this.activeTool.startsWith('draw-')) return;
+
+      this.currentDrawCoordinates.push([e.lngLat.lng, e.lngLat.lat]);
+
+      // Add temporary marker
+      const el = document.createElement('div');
+      el.style.cssText = 'background: #088; width: 8px; height: 8px; border-radius: 50%; border: 2px solid white;';
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat(e.lngLat)
+        .addTo(this.map);
+      this.currentDrawMarkers.push(marker);
+
+      // Finish drawing immediately for points
+      if (tool === 'draw-point') {
+        this.finishDrawing(tool);
+      }
+    };
+
+    this.mapDblClickHandler = (e: maplibregl.MapMouseEvent) => {
+      if (!this.activeTool || !this.activeTool.startsWith('draw-')) return;
+      e.preventDefault();
+
+      // For line and polygon, finish on double-click
+      if (this.currentDrawCoordinates.length >= 2) {
+        this.finishDrawing(tool);
+      }
+    };
+
+    this.map.on('click', this.mapClickHandler);
+    this.map.on('dblclick', this.mapDblClickHandler);
+  }
+
+  private finishDrawing(tool: string) {
+    let geometry: any;
+
+    if (tool === 'draw-point') {
+      geometry = { type: 'Point', coordinates: this.currentDrawCoordinates[0] };
+    } else if (tool === 'draw-line') {
+      geometry = { type: 'LineString', coordinates: this.currentDrawCoordinates };
+    } else if (tool === 'draw-polygon') {
+      // Close the polygon
+      const closedCoords = [...this.currentDrawCoordinates, this.currentDrawCoordinates[0]];
+      geometry = { type: 'Polygon', coordinates: [closedCoords] };
+    }
+
+    const feature: GeoJSON.Feature = {
+      type: 'Feature',
+      geometry,
+      properties: {
+        id: Date.now(),
+        createdAt: new Date().toISOString()
+      }
+    };
+
+    this.drawingFeatures.push(feature);
+
+    // Update source
+    const drawingsSource = this.map.getSource('drawings') as maplibregl.GeoJSONSource;
+    if (drawingsSource) {
+      drawingsSource.setData({
+        type: 'FeatureCollection',
+        features: this.drawingFeatures
+      });
+    }
+
+    // Ask if user wants to save as layer
+    const saveToServer = confirm('Save this feature as a new layer on the server?');
+    if (saveToServer) {
+      this.saveDrawingAsLayer(feature);
+    }
+
+    // Deactivate tool
+    this.deactivateCurrentTool();
+  }
+
+  private startEditing() {
+    // Enable click on drawings to delete them
+    this.mapClickHandler = (e: maplibregl.MapMouseEvent) => {
+      if (this.activeTool !== 'edit-features') return;
+
+      const features = this.map.queryRenderedFeatures(e.point, {
+        layers: ['drawings-fill', 'drawings-line', 'drawings-point']
+      });
+
+      if (features.length > 0) {
+        const featureId = features[0].properties?.id;
+        if (featureId && confirm('Delete this feature?')) {
+          this.drawingFeatures = this.drawingFeatures.filter(f => f.properties?.id !== featureId);
+
+          const drawingsSource = this.map.getSource('drawings') as maplibregl.GeoJSONSource;
+          if (drawingsSource) {
+            drawingsSource.setData({
+              type: 'FeatureCollection',
+              features: this.drawingFeatures
+            });
+          }
+        }
+      }
+    };
+
+    this.map.on('click', this.mapClickHandler);
+  }
+
+  private async saveDrawingAsLayer(feature: GeoJSON.Feature) {
+    const layerName = prompt('Enter layer name:', `Drawing_${Date.now()}`);
+    if (!layerName) return;
+
+    try {
+      // Create GeoJSON with the feature
+      const geojson = {
+        type: 'FeatureCollection',
+        features: [feature]
+      };
+
+      // Upload as new layer
+      const response = await this.apiRequest('/layers/upload', 'POST', {
+        name: layerName,
+        description: 'Created from map drawing tool',
+        geojson
+      });
+
+      if (response && response.layer) {
+        alert(`Layer "${layerName}" saved successfully! (ID: ${response.layer.id})`);
+        // Reload layers to show the new one
+        await this.loadDefaultLayers();
+
+        // Auto-load the new layer to map
+        await this.addLayerToMap(response.layer.id, response.layer.name);
+      } else {
+        console.error('Unexpected response format:', response);
+        alert('Layer may have been saved, but could not confirm. Please refresh the page.');
+      }
+    } catch (error) {
+      console.error('Failed to save layer:', error);
+      alert(`Failed to save layer: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private clearAllDrawings() {
+    if (!confirm('Clear all drawings and measurements?')) return;
+
+    this.drawingFeatures = [];
+    this.clearMeasurement();
+
+    const drawingsSource = this.map.getSource('drawings') as maplibregl.GeoJSONSource;
+    if (drawingsSource) {
+      drawingsSource.setData({
+        type: 'FeatureCollection',
+        features: []
+      });
+    }
+
+    // Deactivate any active tool
+    this.deactivateCurrentTool();
+  }
+
+  private async exportMap() {
+    const title = (document.getElementById('export-title') as HTMLInputElement).value || 'Map Export';
+    const format = (document.getElementById('export-format') as HTMLSelectElement).value;
+    const dpi = parseInt((document.getElementById('export-resolution') as HTMLSelectElement).value);
+    const includeLegend = (document.getElementById('export-legend') as HTMLInputElement).checked;
+    const includeScale = (document.getElementById('export-scale') as HTMLInputElement).checked;
+    const includeAttribution = (document.getElementById('export-attribution') as HTMLInputElement).checked;
+
+    try {
+      // Get map canvas
+      const canvas = this.map.getCanvas();
+      const dataUrl = canvas.toDataURL('image/png');
+
+      if (format === 'png' || format === 'jpeg') {
+        // Simple image export
+        const link = document.createElement('a');
+        link.download = `${title.replace(/\s+/g, '_')}.${format}`;
+        link.href = dataUrl;
+        link.click();
+      } else if (format === 'pdf') {
+        alert('PDF export requires additional library (jsPDF). Feature coming soon!');
+      }
+
+      alert('Map exported successfully!');
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Failed to export map. Please try again.');
+    }
   }
 
   private changeBasemap(type: string) {
@@ -194,6 +878,11 @@ class Dashboard {
           this.createLayerCheckbox(layersList, layer);
         });
       }
+
+      // Pass layers to analysis panel
+      if (this.analysisPanel) {
+        this.analysisPanel.setLayers(layers.map((l: Layer) => ({ id: l.id, name: l.name })));
+      }
     } catch (error) {
       console.error('Failed to load layers:', error);
       document.getElementById('layers-list')!.innerHTML =
@@ -202,9 +891,13 @@ class Dashboard {
   }
 
   private createLayerCheckbox(container: HTMLElement, layer: Layer) {
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 8px 0;';
+
     const label = document.createElement('label');
+    label.style.cssText = 'display: flex; align-items: center; cursor: pointer; flex: 1; font-size: 14px; color: #333;';
     label.innerHTML = `
-      <input type="checkbox" value="${layer.id}" data-layer-name="${layer.name}">
+      <input type="checkbox" value="${layer.id}" data-layer-name="${layer.name}" style="margin-right: 8px; cursor: pointer;">
       <span>${layer.name}</span>
     `;
 
@@ -217,7 +910,24 @@ class Dashboard {
       }
     });
 
-    container.appendChild(label);
+    wrapper.appendChild(label);
+
+    // Add remove button for non-default layers
+    if (!layer.is_default) {
+      const removeBtn = document.createElement('button');
+      removeBtn.innerHTML = '🗑️';
+      removeBtn.title = 'Delete layer';
+      removeBtn.style.cssText = 'background: transparent; border: none; cursor: pointer; font-size: 16px; padding: 4px 8px; opacity: 0.6; transition: opacity 0.2s;';
+      removeBtn.addEventListener('mouseover', () => removeBtn.style.opacity = '1');
+      removeBtn.addEventListener('mouseout', () => removeBtn.style.opacity = '0.6');
+      removeBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.deleteLayer(layer.id, layer.name);
+      });
+      wrapper.appendChild(removeBtn);
+    }
+
+    container.appendChild(wrapper);
   }
 
   private async addLayerToMap(layerId: number, _layerName: string) {
@@ -320,7 +1030,8 @@ class Dashboard {
       `layer-${layerId}-point`,
       `layer-${layerId}-line`,
       `layer-${layerId}-fill`,
-      `layer-${layerId}-stroke`
+      `layer-${layerId}-stroke`,
+      `layer-${layerId}-outline`  // Added for result layers
     ];
 
     layerIds.forEach(layerId => {
@@ -361,6 +1072,32 @@ class Dashboard {
       `;
       legendEl.appendChild(item);
     });
+  }
+
+  private async deleteLayer(layerId: number, layerName: string) {
+    // Confirm deletion
+    if (!confirm(`Are you sure you want to delete layer "${layerName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      // Remove from map if currently active
+      if (this.activeLayers.has(layerId)) {
+        this.removeLayerFromMap(layerId);
+      }
+
+      // Delete from server
+      await this.apiRequest(`/layers/${layerId}`, 'DELETE');
+
+      // Reload layers list
+      await this.loadDefaultLayers();
+
+      // Show success message
+      alert(`Layer "${layerName}" deleted successfully`);
+    } catch (error) {
+      console.error('Failed to delete layer:', error);
+      alert(`Failed to delete layer "${layerName}". ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   private async handleFileUpload(e: Event) {

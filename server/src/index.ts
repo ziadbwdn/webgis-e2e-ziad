@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/error.middleware';
 import authRoutes from './routes/auth.routes';
 import layersRoutes from './routes/layers.routes';
 import analysisRoutes from './routes/analysis.routes';
+import { startWorker } from './queues/worker';
 
 // Load environment variables
 dotenv.config();
@@ -53,6 +54,10 @@ async function startServer() {
       console.error('Failed to connect to database. Exiting...');
       process.exit(1);
     }
+
+    // Start the analysis worker
+    await startWorker();
+    console.log('Analysis worker started');
 
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);

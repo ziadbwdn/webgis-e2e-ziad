@@ -144,10 +144,10 @@ export async function handleClipJob(
 
     await job.updateProgress(50);
 
-    // Use first clip feature to clip all source features
+    // Clip using all clip features (will be dissolved into one boundary)
     const clippedFeatures = await GeoprocessingService.clip(
       sourceFeatures.features,
-      clipFeatures.features[0]
+      clipFeatures.features
     );
 
     await job.updateProgress(80);

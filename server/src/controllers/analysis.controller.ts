@@ -74,11 +74,26 @@ export class AnalysisController {
       throw new AppError(404, 'One or both layers not found or access denied');
     }
 
-    // Create job ID for clip analysis
+    // Create job in queue
     const jobId = `clip-${userId}-${Date.now()}`;
+    const job = await analysisQueue.add('clip', { layerId, clipLayerId, userId }, {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 }
+    });
 
-    // Queue the job (note: using analysisQueue directly for now, would need clip handler)
-    throw new AppError(501, 'Clip analysis not yet implemented');
+    // Store job record in database
+    await pool.query(
+      `INSERT INTO jobs (id, type, status, user_id, input_data, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [jobId, 'clip', 'queued', userId, JSON.stringify({ layerId, clipLayerId })]
+    );
+
+    res.status(202).json({
+      jobId,
+      status: 'queued',
+      message: 'Clip analysis job created. Poll /api/analysis/:jobId for status.',
+    });
   }
 
   /**
@@ -107,9 +122,24 @@ export class AnalysisController {
 
     // Create job ID for intersect analysis
     const jobId = `intersect-${userId}-${Date.now()}`;
+    const job = await analysisQueue.add('intersect', { layerId1, layerId2, userId }, {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 }
+    });
 
-    // Queue the job (note: using analysisQueue directly for now, would need intersect handler)
-    throw new AppError(501, 'Intersect analysis not yet implemented');
+    // Store job record in database
+    await pool.query(
+      `INSERT INTO jobs (id, type, status, user_id, input_data, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [jobId, 'intersect', 'queued', userId, JSON.stringify({ layerId1, layerId2 })]
+    );
+
+    res.status(202).json({
+      jobId,
+      status: 'queued',
+      message: 'Intersect analysis job created. Poll /api/analysis/:jobId for status.',
+    });
   }
 
   /**
@@ -138,9 +168,24 @@ export class AnalysisController {
 
     // Create job ID for union analysis
     const jobId = `union-${userId}-${Date.now()}`;
+    const job = await analysisQueue.add('union', { layerId1, layerId2, userId }, {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 }
+    });
 
-    // Queue the job (note: using analysisQueue directly for now, would need union handler)
-    throw new AppError(501, 'Union analysis not yet implemented');
+    // Store job record in database
+    await pool.query(
+      `INSERT INTO jobs (id, type, status, user_id, input_data, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [jobId, 'union', 'queued', userId, JSON.stringify({ layerId1, layerId2 })]
+    );
+
+    res.status(202).json({
+      jobId,
+      status: 'queued',
+      message: 'Union analysis job created. Poll /api/analysis/:jobId for status.',
+    });
   }
 
   /**

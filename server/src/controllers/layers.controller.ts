@@ -102,4 +102,42 @@ export class LayersController {
       throw error;
     }
   }
+
+  static async deleteLayer(req: Request, res: Response): Promise<void> {
+    const { layerId } = req.params;
+    const userId = req.userId;
+    const id = parseInt(layerId, 10);
+
+    if (!userId) {
+      throw new AppError(401, 'User ID not found in request');
+    }
+
+    if (isNaN(id)) {
+      throw new AppError(400, 'Invalid layer ID');
+    }
+
+    // Check if layer exists and belongs to user (or is not a default layer)
+    const layer = await LayerModel.getLayerById(id);
+    if (!layer) {
+      throw new AppError(404, 'Layer not found');
+    }
+
+    // Prevent deletion of default layers
+    if (layer.is_default) {
+      throw new AppError(403, 'Cannot delete default layers');
+    }
+
+    // Check ownership
+    if (layer.created_by !== userId) {
+      throw new AppError(403, 'You do not have permission to delete this layer');
+    }
+
+    // Delete the layer
+    await LayerModel.deleteLayer(id);
+
+    res.status(200).json({
+      message: 'Layer deleted successfully',
+      layerId: id,
+    });
+  }
 }

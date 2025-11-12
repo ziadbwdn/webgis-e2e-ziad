@@ -55,4 +55,12 @@ router.post(
   })
 );
 
+// DELETE /api/layers/:layerId
+router.delete(
+  '/:layerId',
+  asyncHandler(async (req: Request, res: Response) => {
+    await LayersController.deleteLayer(req, res);
+  })
+);
+
 export default router;
