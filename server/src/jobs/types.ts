@@ -7,6 +7,7 @@ export enum JobType {
   CLIP = 'clip',
   INTERSECT = 'intersect',
   UNION = 'union',
+  RADIUS = 'radius',
 }
 
 export interface BufferJobData {
@@ -34,7 +35,16 @@ export interface UnionJobData {
   userId: number;
 }
 
-export type JobData = BufferJobData | ClipJobData | IntersectJobData | UnionJobData;
+export interface RadiusJobData {
+  longitude: number;
+  latitude: number;
+  radius: number;
+  units: 'meters' | 'kilometers' | 'miles';
+  name?: string;
+  userId: number;
+}
+
+export type JobData = BufferJobData | ClipJobData | IntersectJobData | UnionJobData | RadiusJobData;
 
 export enum JobStatus {
   QUEUED = 'queued',

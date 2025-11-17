@@ -1,5 +1,5 @@
 import { Job } from 'bullmq';
-import { BufferJobData } from '../types';
+import { BufferJobData, RadiusJobData } from '../types';
 import { GeoprocessingService } from '../../services/geoprocessing.service';
 import { LayerModel } from '../../models/layer.model';
 import { AppError } from '../../middleware/error.middleware';
@@ -278,5 +278,97 @@ export async function handleUnionJob(
   } catch (error) {
     console.error(`[Union Job ${job.id}] Error:`, error);
     throw error;
+  }
+}
+
+/**
+ * Handler for radius analysis
+ * Creates a circular buffer from a point location
+ */
+export async function handleRadiusJob(
+  data: RadiusJobData,
+  job: Job<RadiusJobData>
+): Promise<number> {
+  try {
+    // ============= Validation =============
+    if (typeof data.longitude !== 'number' || typeof data.latitude !== 'number') {
+      throw new AppError(400, 'Invalid coordinates: longitude and latitude must be numbers');
+    }
+
+    if (data.radius <= 0) {
+      throw new AppError(400, 'Invalid radius: must be positive');
+    }
+
+    if (!['meters', 'kilometers', 'miles'].includes(data.units)) {
+      throw new AppError(400, 'Invalid units: must be meters, kilometers, or miles');
+    }
+
+    console.log(`[Radius Job ${job.id}] Started with parameters:`, data);
+
+    // ============= Progress: 10% - Validating coordinates =============
+    await job.updateProgress(10);
+
+    // ============= Progress: 50% - Performing radius operation =============
+    await job.updateProgress(50);
+
+    let radiusFeature;
+    try {
+      radiusFeature = await GeoprocessingService.createRadius(
+        data.longitude,
+        data.latitude,
+        data.radius,
+        data.units
+      );
+    } catch (error) {
+      throw new AppError(
+        500,
+        `Radius operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    console.log(`[Radius Job ${job.id}] Radius operation completed`);
+
+    // ============= Progress: 80% - Creating result layer =============
+    await job.updateProgress(80);
+
+    // Generate layer name
+    const layerName = data.name ||
+      `Radius ${data.radius}${data.units} (${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)})`;
+
+    let resultLayer;
+    try {
+      resultLayer = await LayerModel.createLayerWithFeatures(
+        layerName,
+        `Radius analysis: ${data.radius} ${data.units} from coordinates (${data.latitude}, ${data.longitude})`,
+        'polygon',
+        data.userId,
+        [radiusFeature]
+      );
+    } catch (error) {
+      throw new AppError(
+        500,
+        `Failed to create result layer: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
+    console.log(`[Radius Job ${job.id}] Result layer created:`, resultLayer.id);
+
+    // ============= Progress: 100% - Complete =============
+    await job.updateProgress(100);
+
+    console.log(`[Radius Job ${job.id}] Completed successfully. Result layer ID: ${resultLayer.id}`);
+
+    return resultLayer.id;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    console.error(`[Radius Job ${job.id}] Error:`, errorMessage);
+
+    // Re-throw the error so BullMQ can handle retry logic
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    // Wrap unknown errors
+    throw new Error(`Radius job failed: ${errorMessage}`);
   }
 }

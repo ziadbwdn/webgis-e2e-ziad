@@ -7,6 +7,7 @@ import {
   clipAnalysisSchema,
   intersectAnalysisSchema,
   unionAnalysisSchema,
+  radiusAnalysisSchema,
 } from '../utils/validation.schemas';
 
 const router = Router();
@@ -64,6 +65,18 @@ router.post(
   validateBody(unionAnalysisSchema),
   asyncHandler(async (req: Request, res: Response) => {
     await AnalysisController.createUnionAnalysis(req, res);
+  })
+);
+
+/**
+ * POST /api/analysis/radius
+ * Create a radius analysis job
+ */
+router.post(
+  '/radius',
+  validateBody(radiusAnalysisSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    await AnalysisController.createRadiusAnalysis(req, res);
   })
 );
 

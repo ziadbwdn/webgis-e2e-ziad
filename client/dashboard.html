@@ -564,7 +564,18 @@
         
         <!-- Layer Controls -->
         <div class="panel-section">
-          <h3>Layers</h3>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="margin: 0;">Layers</h3>
+            <button id="refresh-layers-btn" title="Refresh layer list" style="
+              background: #3498db;
+              color: white;
+              border: none;
+              border-radius: 4px;
+              padding: 5px 10px;
+              cursor: pointer;
+              font-size: 12px;
+            ">🔄 Refresh</button>
+          </div>
           <div id="layers-list" class="checkbox-group">
             <div class="empty-state">Loading layers...</div>
           </div>
@@ -585,6 +596,9 @@
             </button>
             <button class="tool-btn" id="draw-polygon-btn" title="Draw Polygon">
               <span class="icon">⬡</span> Draw Polygon
+            </button>
+            <button class="tool-btn" id="radius-tool-btn" title="Create Radius">
+              <span class="icon">⭕</span> Create Radius
             </button>
             <button class="tool-btn" id="edit-features-btn" title="Edit Features">
               <span class="icon">✏️</span> Edit Features

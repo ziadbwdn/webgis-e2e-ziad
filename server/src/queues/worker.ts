@@ -7,6 +7,7 @@ import {
   handleClipJob,
   handleIntersectJob,
   handleUnionJob,
+  handleRadiusJob,
 } from '../jobs/handlers/buffer.handler';
 
 /**
@@ -30,6 +31,9 @@ export const analysisWorker = new Worker<JobData>(
 
       case JobType.UNION:
         return await handleUnionJob(job.data as any, job as any);
+
+      case JobType.RADIUS:
+        return await handleRadiusJob(job.data as any, job as any);
 
       default:
         throw new Error(`Unknown job type: ${job.name}`);

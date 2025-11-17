@@ -72,6 +72,21 @@ export const unionAnalysisSchema = z.object({
 });
 
 /**
+ * Radius analysis request validation
+ * Creates a circular buffer from a point location
+ */
+export const radiusAnalysisSchema = z.object({
+  longitude: z.number().min(-180).max(180, 'Longitude must be between -180 and 180'),
+  latitude: z.number().min(-90).max(90, 'Latitude must be between -90 and 90'),
+  radius: z.number().positive('Radius must be positive').describe('Radius distance'),
+  units: z
+    .enum(['meters', 'kilometers', 'miles'])
+    .default('meters')
+    .describe('Units for radius distance'),
+  name: z.string().min(1).max(255).optional().describe('Optional name for the result layer'),
+});
+
+/**
  * Job status query validation
  */
 export const jobStatusSchema = z.object({
@@ -102,6 +117,7 @@ export type BufferAnalysisInput = z.infer<typeof bufferAnalysisSchema>;
 export type ClipAnalysisInput = z.infer<typeof clipAnalysisSchema>;
 export type IntersectAnalysisInput = z.infer<typeof intersectAnalysisSchema>;
 export type UnionAnalysisInput = z.infer<typeof unionAnalysisSchema>;
+export type RadiusAnalysisInput = z.infer<typeof radiusAnalysisSchema>;
 export type JobStatusInput = z.infer<typeof jobStatusSchema>;
 export type JobCancellationInput = z.infer<typeof jobCancellationSchema>;
 export type JobHistoryInput = z.infer<typeof jobHistorySchema>;

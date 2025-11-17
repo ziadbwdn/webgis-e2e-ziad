@@ -287,4 +287,68 @@ export class GeoprocessingService {
 
     return results;
   }
+
+  /**
+   * Radius analysis
+   * Creates a circular buffer from a point location
+   */
+  static async createRadius(
+    longitude: number,
+    latitude: number,
+    radius: number,
+    units: 'meters' | 'kilometers' | 'miles'
+  ): Promise<GeoJSONFeature> {
+    if (longitude < -180 || longitude > 180) {
+      throw new Error('Longitude must be between -180 and 180');
+    }
+    if (latitude < -90 || latitude > 90) {
+      throw new Error('Latitude must be between -90 and 90');
+    }
+    if (radius <= 0) {
+      throw new Error('Radius must be positive');
+    }
+
+    const pool = getPool();
+
+    // Convert units to meters (PostGIS ST_Buffer uses meters for geography)
+    let radiusInMeters = radius;
+    if (units === 'kilometers') {
+      radiusInMeters = radius * 1000;
+    } else if (units === 'miles') {
+      radiusInMeters = radius * 1609.34;
+    }
+
+    try {
+      // Create point and buffer it using geography for accurate circular results
+      const result = await pool.query(
+        `SELECT ST_AsGeoJSON(
+          ST_Buffer(
+            ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+            $3
+          )::geometry
+        ) as geometry`,
+        [longitude, latitude, radiusInMeters]
+      );
+
+      if (!result.rows[0] || !result.rows[0].geometry) {
+        throw new Error('PostGIS radius operation failed');
+      }
+
+      return {
+        type: 'Feature',
+        geometry: JSON.parse(result.rows[0].geometry),
+        properties: {
+          center_longitude: longitude,
+          center_latitude: latitude,
+          radius: radius,
+          radius_units: units,
+          radius_meters: radiusInMeters,
+          created_at: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      console.error('Radius operation failed:', error);
+      throw new Error(`Radius operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
 }

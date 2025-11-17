@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { getPool } from '../db/connection';
-import { createBufferJob, analysisQueue } from '../queues/analysis.queue';
+import { createBufferJob, createRadiusJob, analysisQueue } from '../queues/analysis.queue';
 import { AppError } from '../middleware/error.middleware';
-import { BufferAnalysisInput, ClipAnalysisInput, IntersectAnalysisInput, UnionAnalysisInput } from '../utils/validation.schemas';
+import { BufferAnalysisInput, ClipAnalysisInput, IntersectAnalysisInput, UnionAnalysisInput, RadiusAnalysisInput } from '../utils/validation.schemas';
 
 export class AnalysisController {
   /**
@@ -185,6 +185,43 @@ export class AnalysisController {
       jobId,
       status: 'queued',
       message: 'Union analysis job created. Poll /api/analysis/:jobId for status.',
+    });
+  }
+
+  /**
+   * Create a radius analysis job
+   * POST /api/analysis/radius
+   */
+  static async createRadiusAnalysis(req: Request, res: Response): Promise<void> {
+    const { longitude, latitude, radius, units, name } = req.body as RadiusAnalysisInput;
+    const userId = req.userId;
+
+    if (!userId) {
+      throw new AppError(401, 'User ID not found in request');
+    }
+
+    // Create job in queue
+    const jobId = await createRadiusJob({
+      longitude,
+      latitude,
+      radius,
+      units: units || 'meters',
+      name,
+      userId,
+    });
+
+    // Store job record in database
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO jobs (id, type, status, user_id, input_data, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [jobId, 'radius', 'queued', userId, JSON.stringify({ longitude, latitude, radius, units, name })]
+    );
+
+    res.status(202).json({
+      jobId,
+      status: 'queued',
+      message: 'Radius analysis job created. Poll /api/analysis/:jobId for status.',
     });
   }
 

@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 import { redisConnection } from './connection';
-import { JobType, BufferJobData, JobData } from '../jobs/types';
+import { JobType, BufferJobData, RadiusJobData, JobData } from '../jobs/types';
 
 /**
  * Analysis job queue for handling asynchronous geoprocessing tasks
@@ -47,6 +47,36 @@ export async function createBufferJob(data: BufferJobData): Promise<string> {
   });
 
   console.log(`Created buffer job: ${job.id}`);
+  return job.id!;
+}
+
+/**
+ * Create a radius analysis job
+ * Returns job ID for tracking
+ */
+export async function createRadiusJob(data: RadiusJobData): Promise<string> {
+  // Validate input
+  if (data.radius <= 0) {
+    throw new Error('Radius must be positive');
+  }
+
+  if (!['meters', 'kilometers', 'miles'].includes(data.units)) {
+    throw new Error('Invalid units. Must be meters, kilometers, or miles');
+  }
+
+  if (data.longitude < -180 || data.longitude > 180) {
+    throw new Error('Longitude must be between -180 and 180');
+  }
+
+  if (data.latitude < -90 || data.latitude > 90) {
+    throw new Error('Latitude must be between -90 and 90');
+  }
+
+  const job = await analysisQueue.add(JobType.RADIUS, data, {
+    jobId: `radius-${data.userId}-${Date.now()}`, // Custom job ID for easier tracking
+  });
+
+  console.log(`Created radius job: ${job.id}`);
   return job.id!;
 }
 

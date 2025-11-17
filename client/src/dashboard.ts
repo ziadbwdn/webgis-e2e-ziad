@@ -294,6 +294,11 @@ class Dashboard {
     document.getElementById('file-input')!.addEventListener('change', (e) => {
       this.handleFileUpload(e);
     });
+
+    // Refresh layers button
+    document.getElementById('refresh-layers-btn')!.addEventListener('click', async () => {
+      await this.loadDefaultLayers();
+    });
   }
 
   private initCollapsibleSidebars() {
@@ -391,6 +396,10 @@ class Dashboard {
       this.toggleTool('draw-polygon');
     });
 
+    document.getElementById('radius-tool-btn')!.addEventListener('click', () => {
+      this.toggleTool('radius-tool');
+    });
+
     document.getElementById('edit-features-btn')!.addEventListener('click', () => {
       this.toggleTool('edit-features');
     });
@@ -439,6 +448,10 @@ class Dashboard {
       case 'draw-polygon':
         this.map.getCanvas().style.cursor = 'crosshair';
         this.startDrawing(tool);
+        break;
+      case 'radius-tool':
+        this.map.getCanvas().style.cursor = 'crosshair';
+        this.startRadiusTool();
         break;
       case 'edit-features':
         this.map.getCanvas().style.cursor = 'pointer';
@@ -515,6 +528,9 @@ class Dashboard {
           'circle-stroke-color': '#fff'
         }
       });
+
+      // Add popups for drawing features
+      this.setupDrawingPopups();
     }
 
     // Add source for measurement line
@@ -765,6 +781,99 @@ class Dashboard {
     }
   }
 
+  /**
+   * Start radius tool - click on map to create circular buffer
+   */
+  private startRadiusTool() {
+    this.mapClickHandler = async (e: maplibregl.MapMouseEvent) => {
+      if (this.activeTool !== 'radius-tool') return;
+
+      const { lng, lat } = e.lngLat;
+
+      // Prompt for radius parameters
+      const radiusInput = prompt('Enter radius distance (e.g., 1000):', '1000');
+      if (!radiusInput) return;
+
+      const radius = parseFloat(radiusInput);
+      if (isNaN(radius) || radius <= 0) {
+        alert('Invalid radius. Please enter a positive number.');
+        return;
+      }
+
+      const units = prompt('Enter units (meters, kilometers, miles):', 'meters');
+      if (!units || !['meters', 'kilometers', 'miles'].includes(units)) {
+        alert('Invalid units. Please use: meters, kilometers, or miles.');
+        return;
+      }
+
+      const name = prompt('Enter optional layer name:', `Radius ${radius}${units}`);
+
+      try {
+        // Call radius API
+        const response = await this.apiRequest('/analysis/radius', 'POST', {
+          longitude: lng,
+          latitude: lat,
+          radius,
+          units,
+          name: name || undefined
+        });
+
+        if (response.jobId) {
+          alert(`Radius analysis job created!\nJob ID: ${response.jobId}\n\nCheck the Analysis Panel to monitor progress.`);
+
+          // Deactivate tool after successful creation
+          this.deactivateCurrentTool();
+
+          // Optionally poll for job completion and auto-load result
+          this.pollJobAndLoadResult(response.jobId);
+        }
+      } catch (error) {
+        console.error('Radius analysis failed:', error);
+        alert(`Failed to create radius: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    };
+
+    this.map.on('click', this.mapClickHandler);
+  }
+
+  /**
+   * Poll job status and auto-load result when complete
+   */
+  private async pollJobAndLoadResult(jobId: string) {
+    const maxAttempts = 30; // 30 seconds max
+    let attempts = 0;
+
+    const poll = async () => {
+      try {
+        const status = await this.apiRequest(`/analysis/${jobId}`);
+
+        if (status.status === 'completed' && status.resultLayerId) {
+          console.log(`Job ${jobId} completed. Loading result layer ${status.resultLayerId}`);
+          await this.loadResultLayer(status.resultLayerId);
+          return;
+        }
+
+        if (status.status === 'failed') {
+          console.error(`Job ${jobId} failed:`, status.error);
+          return;
+        }
+
+        // Continue polling if still running
+        if (status.status === 'waiting' || status.status === 'active') {
+          attempts++;
+          if (attempts < maxAttempts) {
+            setTimeout(poll, 1000); // Poll every second
+          }
+        }
+      } catch (error) {
+        console.error('Failed to poll job status:', error);
+      }
+    };
+
+    // Start polling
+    setTimeout(poll, 1000);
+  }
+
   private clearAllDrawings() {
     if (!confirm('Clear all drawings and measurements?')) return;
 
@@ -855,28 +964,14 @@ class Dashboard {
       const defaultLayers = layers.filter((l: Layer) => l.is_default);
       const userLayers = layers.filter((l: Layer) => !l.is_default);
 
-      // Render default layers
+      // Render default layers group
       if (defaultLayers.length > 0) {
-        const defaultHeader = document.createElement('div');
-        defaultHeader.style.cssText = 'padding: 10px 0; font-weight: 600; color: #666; font-size: 12px; margin-top: 10px; margin-bottom: 5px;';
-        defaultHeader.textContent = 'DEFAULT LAYERS';
-        layersList.appendChild(defaultHeader);
-
-        defaultLayers.forEach((layer: Layer) => {
-          this.createLayerCheckbox(layersList, layer);
-        });
+        this.createLayerGroup(layersList, 'DEFAULT LAYERS', defaultLayers, 'default-layers-group');
       }
 
-      // Render user layers
+      // Render user layers group
       if (userLayers.length > 0) {
-        const userHeader = document.createElement('div');
-        userHeader.style.cssText = 'padding: 10px 0; font-weight: 600; color: #666; font-size: 12px; margin-top: 15px; margin-bottom: 5px;';
-        userHeader.textContent = 'MY LAYERS';
-        layersList.appendChild(userHeader);
-
-        userLayers.forEach((layer: Layer) => {
-          this.createLayerCheckbox(layersList, layer);
-        });
+        this.createLayerGroup(layersList, 'MY LAYERS', userLayers, 'my-layers-group');
       }
 
       // Pass layers to analysis panel
@@ -890,7 +985,102 @@ class Dashboard {
     }
   }
 
-  private createLayerCheckbox(container: HTMLElement, layer: Layer) {
+  /**
+   * Create a collapsible layer group with drag-and-drop support
+   */
+  private createLayerGroup(container: HTMLElement, title: string, layers: Layer[], groupId: string) {
+    // Group wrapper
+    const groupWrapper = document.createElement('div');
+    groupWrapper.className = 'layer-group';
+    groupWrapper.style.cssText = 'margin-top: 15px; border: 1px solid #ecf0f1; border-radius: 4px; overflow: hidden;';
+
+    // Group header (clickable to collapse/expand)
+    const groupHeader = document.createElement('div');
+    groupHeader.className = 'layer-group-header';
+    groupHeader.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: #f8f9fa;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.2s;
+    `;
+    groupHeader.addEventListener('mouseenter', () => {
+      groupHeader.style.background = '#e9ecef';
+    });
+    groupHeader.addEventListener('mouseleave', () => {
+      groupHeader.style.background = '#f8f9fa';
+    });
+
+    // Title and collapse icon
+    const headerLeft = document.createElement('div');
+    headerLeft.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+    const collapseIcon = document.createElement('span');
+    collapseIcon.innerHTML = '▼';
+    collapseIcon.style.cssText = 'font-size: 10px; transition: transform 0.2s; color: #666;';
+
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = title;
+    titleSpan.style.cssText = 'font-weight: 600; color: #2c3e50; font-size: 12px;';
+
+    const countBadge = document.createElement('span');
+    countBadge.textContent = `(${layers.length})`;
+    countBadge.style.cssText = 'color: #95a5a6; font-size: 11px; margin-left: 4px;';
+
+    headerLeft.appendChild(collapseIcon);
+    headerLeft.appendChild(titleSpan);
+    headerLeft.appendChild(countBadge);
+    groupHeader.appendChild(headerLeft);
+
+    // Group content (collapsible)
+    const groupContent = document.createElement('div');
+    groupContent.className = 'layer-group-content';
+    groupContent.id = groupId;
+    groupContent.style.cssText = 'background: white; transition: max-height 0.3s ease, opacity 0.3s ease;';
+
+    // Toggle collapse on header click
+    let isCollapsed = false;
+    groupHeader.addEventListener('click', () => {
+      isCollapsed = !isCollapsed;
+      if (isCollapsed) {
+        groupContent.style.maxHeight = '0';
+        groupContent.style.opacity = '0';
+        groupContent.style.overflow = 'hidden';
+        collapseIcon.style.transform = 'rotate(-90deg)';
+      } else {
+        groupContent.style.maxHeight = '1000px';
+        groupContent.style.opacity = '1';
+        groupContent.style.overflow = 'visible';
+        collapseIcon.style.transform = 'rotate(0deg)';
+      }
+      // Save collapse state
+      localStorage.setItem(`group-${groupId}-collapsed`, String(isCollapsed));
+    });
+
+    // Restore collapse state
+    const savedState = localStorage.getItem(`group-${groupId}-collapsed`);
+    if (savedState === 'true') {
+      isCollapsed = true;
+      groupContent.style.maxHeight = '0';
+      groupContent.style.opacity = '0';
+      groupContent.style.overflow = 'hidden';
+      collapseIcon.style.transform = 'rotate(-90deg)';
+    }
+
+    // Add layers to group
+    layers.forEach((layer, index) => {
+      this.createLayerCheckbox(groupContent, layer, index, layers.length);
+    });
+
+    groupWrapper.appendChild(groupHeader);
+    groupWrapper.appendChild(groupContent);
+    container.appendChild(groupWrapper);
+  }
+
+  private createLayerCheckbox(container: HTMLElement, layer: Layer, index?: number, total?: number) {
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 8px 0;';
 
@@ -912,6 +1102,43 @@ class Dashboard {
 
     wrapper.appendChild(label);
 
+    // Add controls container
+    const controlsContainer = document.createElement('div');
+    controlsContainer.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+
+    // Add positioning controls if index and total are provided
+    if (typeof index === 'number' && typeof total === 'number') {
+      // Move up button
+      if (index > 0) {
+        const upBtn = document.createElement('button');
+        upBtn.innerHTML = '▲';
+        upBtn.title = 'Move layer up';
+        upBtn.style.cssText = 'background: transparent; border: none; cursor: pointer; font-size: 12px; padding: 4px 6px; opacity: 0.5; transition: opacity 0.2s; color: #3498db;';
+        upBtn.addEventListener('mouseover', () => upBtn.style.opacity = '1');
+        upBtn.addEventListener('mouseout', () => upBtn.style.opacity = '0.5');
+        upBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.moveLayerInGroup(container, index, index - 1);
+        });
+        controlsContainer.appendChild(upBtn);
+      }
+
+      // Move down button
+      if (index < total - 1) {
+        const downBtn = document.createElement('button');
+        downBtn.innerHTML = '▼';
+        downBtn.title = 'Move layer down';
+        downBtn.style.cssText = 'background: transparent; border: none; cursor: pointer; font-size: 12px; padding: 4px 6px; opacity: 0.5; transition: opacity 0.2s; color: #3498db;';
+        downBtn.addEventListener('mouseover', () => downBtn.style.opacity = '1');
+        downBtn.addEventListener('mouseout', () => downBtn.style.opacity = '0.5');
+        downBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.moveLayerInGroup(container, index, index + 1);
+        });
+        controlsContainer.appendChild(downBtn);
+      }
+    }
+
     // Add remove button for non-default layers
     if (!layer.is_default) {
       const removeBtn = document.createElement('button');
@@ -924,10 +1151,31 @@ class Dashboard {
         e.stopPropagation();
         await this.deleteLayer(layer.id, layer.name);
       });
-      wrapper.appendChild(removeBtn);
+      controlsContainer.appendChild(removeBtn);
     }
 
+    wrapper.appendChild(controlsContainer);
     container.appendChild(wrapper);
+  }
+
+  /**
+   * Move a layer to a different position within its group
+   */
+  private moveLayerInGroup(container: HTMLElement, fromIndex: number, toIndex: number) {
+    const children = Array.from(container.children);
+    if (fromIndex >= children.length || toIndex >= children.length || toIndex < 0) return;
+
+    const element = children[fromIndex];
+    container.removeChild(element);
+
+    if (toIndex >= children.length - 1) {
+      container.appendChild(element);
+    } else {
+      container.insertBefore(element, children[toIndex]);
+    }
+
+    // Refresh the entire layer list to update indices
+    this.loadDefaultLayers();
   }
 
   private async addLayerToMap(layerId: number, _layerName: string) {
@@ -1016,10 +1264,205 @@ class Dashboard {
       this.activeLayers.set(layerId, color);
       this.updateLegend();
 
+      // Setup popup for this layer
+      this.setupLayerPopup(layerId, geometryType);
+
     } catch (error) {
       console.error('Failed to add layer:', error);
       alert('Failed to load layer data');
     }
+  }
+
+  /**
+   * Setup interactive popup for a layer
+   */
+  private setupLayerPopup(layerId: number, geometryType: string) {
+    // Determine which layer IDs to attach popups to
+    const interactiveLayers: string[] = [];
+
+    switch (geometryType) {
+      case 'Point':
+      case 'MultiPoint':
+        interactiveLayers.push(`layer-${layerId}-point`);
+        break;
+      case 'LineString':
+      case 'MultiLineString':
+        interactiveLayers.push(`layer-${layerId}-line`);
+        break;
+      case 'Polygon':
+      case 'MultiPolygon':
+        interactiveLayers.push(`layer-${layerId}-fill`);
+        break;
+      default:
+        interactiveLayers.push(`layer-${layerId}-line`);
+    }
+
+    // Add click handler for each interactive layer
+    interactiveLayers.forEach(layerIdStr => {
+      // Change cursor on hover
+      this.map.on('mouseenter', layerIdStr, () => {
+        this.map.getCanvas().style.cursor = 'pointer';
+      });
+
+      this.map.on('mouseleave', layerIdStr, () => {
+        this.map.getCanvas().style.cursor = '';
+      });
+
+      // Show popup on click
+      this.map.on('click', layerIdStr, (e) => {
+        if (!e.features || e.features.length === 0) return;
+
+        const feature = e.features[0];
+        const properties = feature.properties || {};
+        const coordinates = e.lngLat;
+
+        // Build popup HTML content
+        let popupContent = '<div style="font-family: sans-serif; max-width: 300px;">';
+        popupContent += '<h3 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: #2c3e50;">Feature Properties</h3>';
+
+        if (Object.keys(properties).length === 0) {
+          popupContent += '<p style="color: #7f8c8d; font-size: 12px; margin: 0;">No properties available</p>';
+        } else {
+          popupContent += '<table style="width: 100%; font-size: 12px; border-collapse: collapse;">';
+
+          // Sort properties alphabetically
+          const sortedKeys = Object.keys(properties).sort();
+
+          sortedKeys.forEach(key => {
+            const value = properties[key];
+            // Skip null/undefined values and internal properties
+            if (value === null || value === undefined || key.startsWith('_')) return;
+
+            // Format value
+            let displayValue = value;
+            if (typeof value === 'number') {
+              displayValue = value.toFixed(2);
+            } else if (typeof value === 'boolean') {
+              displayValue = value ? '✓' : '✗';
+            } else if (typeof value === 'string' && value.length > 50) {
+              displayValue = value.substring(0, 47) + '...';
+            }
+
+            popupContent += `
+              <tr style="border-bottom: 1px solid #ecf0f1;">
+                <td style="padding: 6px 8px 6px 0; font-weight: 600; color: #34495e;">${key}:</td>
+                <td style="padding: 6px 0 6px 8px; color: #7f8c8d;">${displayValue}</td>
+              </tr>
+            `;
+          });
+
+          popupContent += '</table>';
+        }
+
+        // Add coordinates
+        popupContent += `
+          <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ecf0f1; font-size: 11px; color: #95a5a6;">
+            <strong>Coordinates:</strong><br/>
+            Lat: ${coordinates.lat.toFixed(6)}<br/>
+            Lng: ${coordinates.lng.toFixed(6)}
+          </div>
+        `;
+
+        popupContent += '</div>';
+
+        // Create and display popup
+        new maplibregl.Popup({
+          closeButton: true,
+          closeOnClick: true,
+          maxWidth: '400px'
+        })
+          .setLngLat(coordinates)
+          .setHTML(popupContent)
+          .addTo(this.map);
+      });
+    });
+  }
+
+  /**
+   * Setup popups for drawing features
+   */
+  private setupDrawingPopups() {
+    const drawingLayers = ['drawings-point', 'drawings-line', 'drawings-fill'];
+
+    drawingLayers.forEach(layerId => {
+      // Change cursor on hover
+      this.map.on('mouseenter', layerId, () => {
+        if (this.activeTool !== 'edit-features') {
+          this.map.getCanvas().style.cursor = 'pointer';
+        }
+      });
+
+      this.map.on('mouseleave', layerId, () => {
+        if (this.activeTool !== 'edit-features') {
+          this.map.getCanvas().style.cursor = '';
+        }
+      });
+
+      // Show popup on click (only when not in edit mode)
+      this.map.on('click', layerId, (e) => {
+        if (this.activeTool === 'edit-features') return; // Don't show popup in edit mode
+
+        if (!e.features || e.features.length === 0) return;
+
+        const feature = e.features[0];
+        const geometryType = feature.geometry?.type;
+        const coordinates = e.lngLat;
+
+        // Build popup content
+        let popupContent = '<div style="font-family: sans-serif; max-width: 300px;">';
+        popupContent += '<h3 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: #088;">Drawing Feature</h3>';
+
+        popupContent += '<table style="width: 100%; font-size: 12px; border-collapse: collapse;">';
+        popupContent += `
+          <tr style="border-bottom: 1px solid #ecf0f1;">
+            <td style="padding: 6px 8px 6px 0; font-weight: 600; color: #34495e;">Type:</td>
+            <td style="padding: 6px 0 6px 8px; color: #7f8c8d;">${geometryType}</td>
+          </tr>
+        `;
+
+        // Calculate and display length/area if applicable
+        if (geometryType === 'LineString' && feature.geometry?.coordinates) {
+          const coords = feature.geometry.coordinates as number[][];
+          const length = this.calculateDistance(coords);
+          popupContent += `
+            <tr style="border-bottom: 1px solid #ecf0f1;">
+              <td style="padding: 6px 8px 6px 0; font-weight: 600; color: #34495e;">Length:</td>
+              <td style="padding: 6px 0 6px 8px; color: #7f8c8d;">${length.toFixed(2)} km</td>
+            </tr>
+          `;
+        }
+
+        popupContent += '</table>';
+
+        // Add coordinates
+        popupContent += `
+          <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ecf0f1; font-size: 11px; color: #95a5a6;">
+            <strong>Click location:</strong><br/>
+            Lat: ${coordinates.lat.toFixed(6)}<br/>
+            Lng: ${coordinates.lng.toFixed(6)}
+          </div>
+        `;
+
+        // Add tip for editing
+        popupContent += `
+          <div style="margin-top: 8px; padding: 8px; background: #ecf0f1; border-radius: 4px; font-size: 11px; color: #7f8c8d;">
+            💡 <strong>Tip:</strong> Use the "✏️ Edit Features" tool to delete this feature
+          </div>
+        `;
+
+        popupContent += '</div>';
+
+        // Create and display popup
+        new maplibregl.Popup({
+          closeButton: true,
+          closeOnClick: true,
+          maxWidth: '400px'
+        })
+          .setLngLat(coordinates)
+          .setHTML(popupContent)
+          .addTo(this.map);
+      });
+    });
   }
 
   private removeLayerFromMap(layerId: number) {
