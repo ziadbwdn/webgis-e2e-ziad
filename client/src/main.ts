@@ -78,9 +78,9 @@ async function handleAuth(e: Event) {
       // Save auth state
       localStorage.setItem('authToken', data.token);
       localStorage.setItem('currentUser', JSON.stringify(data.user));
-      
-      // Redirect to dashboard
-      window.location.href = '/dashboard.html';
+
+      // Redirect to home (landing page)
+      window.location.href = '/home.html';
     } else {
       // After registration, switch to login
       alert('Registration successful! Please login.');
@@ -102,5 +102,5 @@ toggleAuthLink.addEventListener('click', (e) => {
 
 // Check if already logged in
 if (localStorage.getItem('authToken')) {
-  window.location.href = '/dashboard.html';
+  window.location.href = '/home.html';
 }

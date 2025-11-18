@@ -244,7 +244,8 @@ class Dashboard {
         }]
       },
       center: [106.8456, -6.2088], // Jakarta, Indonesia
-      zoom: 5
+      zoom: 5,
+      preserveDrawingBuffer: true // Enable canvas export capability
     });
 
     // Add controls
@@ -893,32 +894,741 @@ class Dashboard {
   }
 
   private async exportMap() {
-    const title = (document.getElementById('export-title') as HTMLInputElement).value || 'Map Export';
+    // Get image name from input (used as title)
+    const imageName = (document.getElementById('export-title') as HTMLInputElement).value || 'Map Export';
     const format = (document.getElementById('export-format') as HTMLSelectElement).value;
     const dpi = parseInt((document.getElementById('export-resolution') as HTMLSelectElement).value);
     const includeLegend = (document.getElementById('export-legend') as HTMLInputElement).checked;
     const includeScale = (document.getElementById('export-scale') as HTMLInputElement).checked;
     const includeAttribution = (document.getElementById('export-attribution') as HTMLInputElement).checked;
 
+    console.log('Export started:', { imageName, format, dpi, includeLegend, includeScale, includeAttribution });
+
     try {
-      // Get map canvas
-      const canvas = this.map.getCanvas();
-      const dataUrl = canvas.toDataURL('image/png');
+      // Wait for map to be fully loaded
+      await new Promise<void>(resolve => {
+        if (this.map.loaded()) {
+          resolve();
+        } else {
+          this.map.once('load', () => {
+            resolve();
+          });
+        }
+      });
+
+      // Wait for all sources and layers to be rendered
+      let maxWaitTime = 5000;
+      let elapsedTime = 0;
+      const checkInterval = 200;
+
+      await new Promise<void>(resolve => {
+        const checkAllLoaded = () => {
+          let allLoaded = true;
+
+          const sources = this.map.getStyle().sources || {};
+          for (const sourceId of Object.keys(sources)) {
+            try {
+              if (!this.map.isSourceLoaded(sourceId)) {
+                allLoaded = false;
+                break;
+              }
+            } catch (e) {
+              allLoaded = false;
+              break;
+            }
+          }
+
+          if (allLoaded && this.map.areTilesLoaded()) {
+            this.map.off('sourcedata', checkAllLoaded);
+            resolve();
+          } else if (elapsedTime >= maxWaitTime) {
+            console.warn('Export timeout: some sources may not be fully loaded');
+            this.map.off('sourcedata', checkAllLoaded);
+            resolve();
+          } else {
+            elapsedTime += checkInterval;
+          }
+        };
+
+        checkAllLoaded();
+
+        if (!this.map.areTilesLoaded()) {
+          this.map.on('sourcedata', checkAllLoaded);
+        }
+      });
+
+      // Force a render
+      this.map.triggerRepaint();
+      await new Promise<void>(resolve => setTimeout(resolve, 500));
+
+      // Get current map canvas
+      const mainCanvas = this.map.getCanvas() as HTMLCanvasElement;
+      console.log('Main map canvas size:', mainCanvas.width, 'x', mainCanvas.height);
+
+      // Layout dimensions
+      const totalWidth = 1500;  // Total available width
+      const totalHeight = 1000; // Total available height
+      const headerHeight = 80;
+      const sidebarWidth = 350;  // Sidebar width
+      const padding = 15;
+      const borderWidth = 2;
+
+      // Main map: Use all available space, maintain ORIGINAL aspect ratio (not 4:3)
+      // Calculate map dimensions to use all available space while maintaining actual aspect ratio
+      const availableMapWidth = totalWidth - sidebarWidth - (2 * borderWidth);
+      const availableMapHeight = totalHeight - headerHeight - (2 * borderWidth);
+
+      // Get the actual map's aspect ratio from the main canvas
+      const mapAspectRatio = mainCanvas.width / mainCanvas.height;
+
+      let mapWidth = availableMapWidth;
+      let mapHeight = availableMapHeight;
+
+      // Adjust to maintain ACTUAL aspect ratio
+      if (mapWidth / mapHeight > mapAspectRatio) {
+        // Available space is too wide, constrain by height
+        mapWidth = mapHeight * mapAspectRatio;
+      } else {
+        // Available space is too tall, constrain by width
+        mapHeight = mapWidth / mapAspectRatio;
+      }
+
+      // Index map: enforce 4:3 ratio
+      const indexMapRatio = 4 / 3;
+
+      // Create index map container with visible dimensions
+      const indexMapContainer = document.createElement('div');
+      const indexMapWidth = 260;
+      const indexMapHeight = 120;
+      indexMapContainer.style.cssText = `position: fixed; top: -9999px; left: -9999px; width: ${indexMapWidth}px; height: ${indexMapHeight}px; display: block; z-index: -9999;`;
+      document.body.appendChild(indexMapContainer);
+
+      // Create index map instance - zoomed out to show broader context
+      const indexMap = new maplibregl.Map({
+        container: indexMapContainer,
+        style: {
+          version: 8,
+          sources: {
+            'osm-source': {
+              type: 'raster',
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              attribution: '© OpenStreetMap contributors'
+            }
+          },
+          layers: [{
+            id: 'osm-layer',
+            type: 'raster',
+            source: 'osm-source',
+            minzoom: 0,
+            maxzoom: 19
+          }]
+        },
+        center: [110.0, -7.0], // Broader center for Indonesia context
+        zoom: 4, // Zoomed out further to show broader region including Surabaya location
+        preserveDrawingBuffer: true,
+        interactive: false
+      });
+
+      // Wait for index map to fully load and render tiles, then add AOI layers
+      let indexMapLoaded = false;
+      await new Promise<void>(resolve => {
+        const checkLoaded = () => {
+          if (indexMap.loaded() && indexMap.areTilesLoaded()) {
+            indexMapLoaded = true;
+            clearInterval(checkInterval);
+            resolve();
+          }
+        };
+
+        if (indexMap.loaded() && indexMap.areTilesLoaded()) {
+          indexMapLoaded = true;
+          resolve();
+        } else {
+          indexMap.once('load', () => {
+            setTimeout(() => {
+              // Add active layers (AOI) to the index map
+              let layerIndex = 0;
+              this.activeLayers.forEach((layerColor, layerId) => {
+                const sourceId = `layer-${layerId}`;
+
+                // Try to fetch and add the layer data to index map
+                this.apiRequest(`/layers/${layerId}/features`)
+                  .then((geojson: any) => {
+                    if (!indexMap.getSource(`aoi-${sourceId}`)) {
+                      indexMap.addSource(`aoi-${sourceId}`, {
+                        type: 'geojson',
+                        data: geojson
+                      });
+
+                      // Add appropriate layer based on geometry type
+                      const geometryType = geojson.features?.[0]?.geometry?.type;
+                      const color = this.layerColors[layerIndex % this.layerColors.length];
+
+                      switch (geometryType) {
+                        case 'Point':
+                        case 'MultiPoint':
+                          indexMap.addLayer({
+                            id: `aoi-${sourceId}-point`,
+                            type: 'circle',
+                            source: `aoi-${sourceId}`,
+                            paint: {
+                              'circle-radius': 3,
+                              'circle-color': color,
+                              'circle-opacity': 0.7
+                            }
+                          });
+                          break;
+                        case 'LineString':
+                        case 'MultiLineString':
+                          indexMap.addLayer({
+                            id: `aoi-${sourceId}-line`,
+                            type: 'line',
+                            source: `aoi-${sourceId}`,
+                            paint: {
+                              'line-color': color,
+                              'line-width': 1,
+                              'line-opacity': 0.7
+                            }
+                          });
+                          break;
+                        case 'Polygon':
+                        case 'MultiPolygon':
+                          indexMap.addLayer({
+                            id: `aoi-${sourceId}-fill`,
+                            type: 'fill',
+                            source: `aoi-${sourceId}`,
+                            paint: {
+                              'fill-color': color,
+                              'fill-opacity': 0.3
+                            }
+                          });
+                          indexMap.addLayer({
+                            id: `aoi-${sourceId}-stroke`,
+                            type: 'line',
+                            source: `aoi-${sourceId}`,
+                            paint: {
+                              'line-color': color,
+                              'line-width': 1,
+                              'line-opacity': 0.7
+                            }
+                          });
+                          break;
+                      }
+                    }
+                  })
+                  .catch(error => console.warn('Could not load AOI layer for index map:', error));
+
+                layerIndex++;
+              });
+
+              indexMap.triggerRepaint();
+              setTimeout(() => resolve(), 800);
+            }, 500);
+          });
+          const checkInterval = setInterval(checkLoaded, 200);
+          setTimeout(() => {
+            clearInterval(checkInterval);
+            if (!indexMapLoaded) resolve();
+          }, 3000);
+        }
+      });
+
+      // Force repaint and capture
+      indexMap.triggerRepaint();
+      await new Promise<void>(resolve => setTimeout(resolve, 500));
+
+      let indexCanvasData = '';
+      try {
+        const indexCanvas = indexMap.getCanvas() as HTMLCanvasElement;
+        indexCanvasData = indexCanvas.toDataURL('image/png');
+      } catch (e) {
+        console.error('Failed to capture index map:', e);
+        // Create a fallback placeholder
+        const fallbackCanvas = document.createElement('canvas');
+        fallbackCanvas.width = indexMapWidth;
+        fallbackCanvas.height = indexMapHeight;
+        const fallbackCtx = fallbackCanvas.getContext('2d');
+        if (fallbackCtx) {
+          fallbackCtx.fillStyle = '#e8f4f8';
+          fallbackCtx.fillRect(0, 0, indexMapWidth, indexMapHeight);
+          fallbackCtx.strokeStyle = '#999';
+          fallbackCtx.strokeRect(0, 0, indexMapWidth, indexMapHeight);
+          fallbackCtx.fillStyle = '#999';
+          fallbackCtx.font = '12px Arial';
+          fallbackCtx.textAlign = 'center';
+          fallbackCtx.fillText('Index Map', indexMapWidth / 2, indexMapHeight / 2);
+        }
+        indexCanvasData = fallbackCanvas.toDataURL('image/png');
+      }
+
+      // Create export canvas - main map maintains actual aspect ratio, uses all available space
+      console.log('Creating export canvas...');
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = Math.round(mapWidth + sidebarWidth);
+      exportCanvas.height = Math.round(mapHeight + headerHeight);
+      console.log('Export canvas created:', exportCanvas.width, 'x', exportCanvas.height);
+
+      const ctx = exportCanvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Could not get canvas context');
+      }
+      console.log('Canvas context obtained successfully');
+
+      // White background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+      // ===== HEADER SECTION =====
+      // Draw header border
+      ctx.strokeStyle = '#333333';
+      ctx.lineWidth = borderWidth;
+      ctx.strokeRect(0, 0, exportCanvas.width, headerHeight);
+
+      // Map title (Image Name) - positioned at top left
+      ctx.font = 'bold 18px Arial, sans-serif';
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'left';
+      ctx.fillText(imageName, padding, padding + 20);  // Top left of page
+
+      // Scale info in header (top right)
+      if (includeScale) {
+        const metersPerPixel = 40075017 / (256 * Math.pow(2, this.map.getZoom())) / Math.cos((this.map.getCenter().lat * Math.PI) / 180);
+        const scaleRatio = (metersPerPixel * 100000).toFixed(0);
+        ctx.font = '11px Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`Skala 1:${scaleRatio}`, exportCanvas.width - padding, 20);
+      }
+
+      // Metadata in header (right side)
+      ctx.font = '9px Arial, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`Proyeksi: Geographic (WGS84)`, exportCanvas.width - padding, 35);
+      ctx.fillText(`Datum: WGS84`, exportCanvas.width - padding, 47);
+
+      // ===== MAIN CONTENT AREA =====
+      const contentY = headerHeight;
+      const contentHeight = mapHeight;
+
+      // Draw main border around content
+      ctx.strokeStyle = '#333333';
+      ctx.lineWidth = borderWidth;
+      ctx.strokeRect(0, contentY, mapWidth, contentHeight);
+
+      // Draw the main map canvas WITHOUT stretching - maintain aspect ratio
+      // Calculate scaling to fit within the available box while maintaining original aspect ratio
+      const canvasAspectRatio = mainCanvas.width / mainCanvas.height;
+      const displayAspectRatio = mapWidth / mapHeight;
+
+      let drawWidth = mapWidth - (2 * borderWidth);
+      let drawHeight = mapHeight - (2 * borderWidth);
+      let drawX = borderWidth;
+      let drawY = contentY + borderWidth;
+
+      // If map is wider than available area, constrain by width
+      if (canvasAspectRatio > displayAspectRatio) {
+        drawHeight = drawWidth / canvasAspectRatio;
+        drawY = contentY + borderWidth + (mapHeight - (2 * borderWidth) - drawHeight) / 2;
+      } else {
+        // Otherwise constrain by height
+        drawWidth = drawHeight * canvasAspectRatio;
+        drawX = borderWidth + (mapWidth - (2 * borderWidth) - drawWidth) / 2;
+      }
+
+      // Draw the main map canvas first
+      ctx.drawImage(
+        mainCanvas,
+        drawX,
+        drawY,
+        drawWidth,
+        drawHeight
+      );
+
+      // ===== ADD GRID AND TICK MARKS ON TOP OF MAP FOR POSITIONAL REFERENCE =====
+      // Get map bounds to calculate grid
+      const mapBounds = this.map.getBounds();
+      const gridSpacing = 0.5; // Fixed 0.5 degree increments
+
+      // Calculate grid bounds
+      const westBound = mapBounds.getWest();
+      const eastBound = mapBounds.getEast();
+      const southBound = mapBounds.getSouth();
+      const northBound = mapBounds.getNorth();
+
+      // Calculate grid start points aligned to 0.5 degree boundaries
+      const minLng = Math.floor(westBound * 2) / 2;
+      const maxLng = Math.ceil(eastBound * 2) / 2;
+      const minLat = Math.floor(southBound * 2) / 2;
+      const maxLat = Math.ceil(northBound * 2) / 2;
+
+      const lngRange = eastBound - westBound;
+      const latRange = northBound - southBound;
+
+      const mapLeft = drawX;
+      const mapRight = drawX + drawWidth;
+      const mapTop = drawY;
+      const mapBottom = drawY + drawHeight;
+
+      // Draw grid lines ON TOP of map with good visibility
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'; // White with 70% opacity for visibility over map
+      ctx.lineWidth = 1.2;
+
+      // Longitude grid lines (vertical)
+      for (let lng = minLng; lng <= maxLng; lng += gridSpacing) {
+        const pixelX = mapLeft + ((lng - westBound) / lngRange) * drawWidth;
+        if (pixelX >= mapLeft && pixelX <= mapRight) {
+          ctx.beginPath();
+          ctx.moveTo(pixelX, mapTop);
+          ctx.lineTo(pixelX, mapBottom);
+          ctx.stroke();
+        }
+      }
+
+      // Latitude grid lines (horizontal)
+      for (let lat = minLat; lat <= maxLat; lat += gridSpacing) {
+        const pixelY = mapTop + ((northBound - lat) / latRange) * drawHeight;
+        if (pixelY >= mapTop && pixelY <= mapBottom) {
+          ctx.beginPath();
+          ctx.moveTo(mapLeft, pixelY);
+          ctx.lineTo(mapRight, pixelY);
+          ctx.stroke();
+        }
+      }
+
+      // Draw tick marks on borders
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+      ctx.font = 'bold 9px Arial, sans-serif';
+
+      // Longitude tick marks and labels (bottom border)
+      ctx.textAlign = 'center';
+      for (let lng = minLng; lng <= maxLng; lng += gridSpacing) {
+        const pixelX = mapLeft + ((lng - westBound) / lngRange) * drawWidth;
+
+        // Draw small tick mark at bottom edge
+        ctx.beginPath();
+        ctx.moveTo(pixelX, mapBottom - 3);
+        ctx.lineTo(pixelX, mapBottom);
+        ctx.stroke();
+
+        // Draw label below tick
+        ctx.fillText(lng.toFixed(1) + '°', pixelX, mapBottom + 14);
+      }
+
+      // Latitude tick marks and labels (left border)
+      ctx.textAlign = 'right';
+      for (let lat = minLat; lat <= maxLat; lat += gridSpacing) {
+        const pixelY = mapTop + ((northBound - lat) / latRange) * drawHeight;
+
+        // Draw small tick mark at left edge
+        ctx.beginPath();
+        ctx.moveTo(mapLeft, pixelY);
+        ctx.lineTo(mapLeft + 3, pixelY);
+        ctx.stroke();
+
+        // Draw label to the left
+        ctx.fillText(lat.toFixed(1) + '°', mapLeft - 8, pixelY + 3);
+      }
+
+      // ===== INJECT SCALE AND NORTH ARROW INSIDE MAIN MAP (bottom-right corner) =====
+      // These are drawn DIRECTLY ON TOP of the main map
+      const mapBottomY = drawY + drawHeight;
+      const mapRightX = drawX + drawWidth;
+
+      // North arrow and scale bar positioned at bottom-right corner of map
+      const arrowBoxX = mapRightX - 80;
+      const arrowBoxY = mapBottomY - 110;
+      const arrowBoxWidth = 70;
+      const arrowBoxHeight = 100;
+
+      // Semi-transparent white background for readability (50% opacity)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.fillRect(arrowBoxX, arrowBoxY, arrowBoxWidth, arrowBoxHeight);
+      ctx.strokeStyle = 'rgba(51, 51, 51, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(arrowBoxX, arrowBoxY, arrowBoxWidth, arrowBoxHeight);
+
+      // North arrow (↑ N) with 50% opacity
+      const northX = arrowBoxX + arrowBoxWidth / 2;
+      const northY = arrowBoxY + 20;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.font = 'bold 18px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('↑', northX, northY);
+      ctx.font = '13px Arial, sans-serif';
+      ctx.fillText('N', northX, northY + 20);
+
+      // Scale bar (below north arrow) with 50% opacity
+      const scaleY = arrowBoxY + 50;
+      const scaleBarWidth = 50;
+      const scaleX = northX - scaleBarWidth / 2;
+
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(scaleX, scaleY);
+      ctx.lineTo(scaleX + scaleBarWidth, scaleY);
+      ctx.stroke();
+
+      // Scale bar ticks
+      ctx.beginPath();
+      ctx.moveTo(scaleX, scaleY - 4);
+      ctx.lineTo(scaleX, scaleY + 4);
+      ctx.moveTo(scaleX + scaleBarWidth, scaleY - 4);
+      ctx.lineTo(scaleX + scaleBarWidth, scaleY + 4);
+      ctx.stroke();
+
+      ctx.font = '8px Arial, sans-serif';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.textAlign = 'center';
+      ctx.fillText('0', scaleX, scaleY + 14);
+      ctx.fillText('5 km', scaleX + scaleBarWidth, scaleY + 14);
+
+      // Draw vertical separator for sidebar
+      const sidebarX = exportCanvas.width - sidebarWidth;
+      ctx.strokeStyle = '#333333';
+      ctx.lineWidth = borderWidth;
+      ctx.beginPath();
+      ctx.moveTo(sidebarX, contentY);
+      ctx.lineTo(sidebarX, contentY + contentHeight);
+      ctx.stroke();
+
+      // ===== SIDEBAR CONTENT =====
+      const sidebarContentX = sidebarX + 12;
+      let currentY = contentY + 15;
+      const lineHeight = 12;
+
+      // Helper to draw section title
+      const drawSectionTitle = (title: string, y: number): number => {
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 11px Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(title, sidebarContentX, y);
+
+        ctx.strokeStyle = '#999999';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sidebarContentX, y + 3);
+        ctx.lineTo(sidebarX + sidebarWidth - 12, y + 3);
+        ctx.stroke();
+
+        return y + 15;
+      };
+
+      // ===== LEGEND BOX =====
+      if (includeLegend && this.activeLayers.size > 0) {
+        currentY = drawSectionTitle('LEGENDA', currentY);
+        currentY += 8;
+
+        let layerIndex = 0;
+        // Build layer list with names and colors
+        const checkedLayers: Array<{id: number, name: string}> = [];
+        document.querySelectorAll('#layers-list input:checked').forEach(checkbox => {
+          const input = checkbox as HTMLInputElement;
+          checkedLayers.push({
+            id: parseInt(input.value),
+            name: input.dataset.layerName || 'Unknown'
+          });
+        });
+
+        checkedLayers.forEach((layer) => {
+          const color = this.activeLayers.get(layer.id) || this.layerColors[layerIndex % this.layerColors.length];
+
+          // Draw colored line to represent the layer
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(sidebarContentX, currentY - 4);
+          ctx.lineTo(sidebarContentX + 20, currentY - 4);
+          ctx.stroke();
+
+          // Draw layer name with color annotation format: "layer name (on map)"
+          ctx.fillStyle = '#000000';
+          ctx.font = '11px Arial, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText(`${layer.name} (on map)`, sidebarContentX + 28, currentY);
+
+          currentY += 16;
+          layerIndex++;
+        });
+
+        currentY += 12;
+      }
+
+      // ===== INDEX MAP BOX (PETA INDEKS) - 4:3 Ratio =====
+      const sidebarIndexMapWidth = sidebarWidth - 30;
+      // Enforce 4:3 ratio for index map
+      let sidebarIndexMapHeight = (sidebarIndexMapWidth / 4) * 3;
+      // Cap it to reasonable size
+      if (sidebarIndexMapHeight > 150) sidebarIndexMapHeight = 150;
+
+      // Draw title
+      currentY = drawSectionTitle('PETA INDEKS', currentY);
+      currentY += 8;
+
+      // Index map box
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sidebarContentX, currentY, sidebarIndexMapWidth, sidebarIndexMapHeight);
+      ctx.strokeStyle = '#333333';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sidebarContentX, currentY, sidebarIndexMapWidth, sidebarIndexMapHeight);
+
+      // Wait for and draw the index map image
+      await new Promise<void>(resolve => {
+        const indexMapImage = new Image();
+        indexMapImage.onload = () => {
+          ctx.drawImage(indexMapImage, sidebarContentX, currentY, sidebarIndexMapWidth, sidebarIndexMapHeight);
+          resolve();
+        };
+        indexMapImage.onerror = () => {
+          console.error('Failed to load index map image');
+          resolve();
+        };
+        indexMapImage.src = indexCanvasData;
+
+        // Timeout fallback after 2 seconds
+        setTimeout(() => resolve(), 2000);
+      });
+
+      currentY += sidebarIndexMapHeight + 12;
+
+      // ===== MAP INFORMATION BOX =====
+      currentY = drawSectionTitle('Informasi Peta:', currentY);
+      currentY += 8;
+
+      ctx.fillStyle = '#333333';
+      ctx.font = '10px Arial, sans-serif';
+      ctx.textAlign = 'left';
+
+      ctx.fillText(`Proyeksi: Web Mercator`, sidebarContentX, currentY);
+      currentY += 14;
+      ctx.fillText(`Datum: WGS84`, sidebarContentX, currentY);
+      currentY += 14;
+      ctx.fillText(`Pusat Peta:`, sidebarContentX, currentY);
+      currentY += 14;
+      ctx.fillText(`  Bujur: ${this.map.getCenter().lng.toFixed(4)}°`, sidebarContentX, currentY);
+      currentY += 14;
+      ctx.fillText(`  Lintang: ${this.map.getCenter().lat.toFixed(4)}°`, sidebarContentX, currentY);
+      currentY += 14;
+      ctx.fillText(`Zoom Level: ${this.map.getZoom().toFixed(1)}`, sidebarContentX, currentY);
+      currentY += 14;
+
+      if (includeScale) {
+        const metersPerPixel = 40075017 / (256 * Math.pow(2, this.map.getZoom())) / Math.cos((this.map.getCenter().lat * Math.PI) / 180);
+        const scaleRatio = (metersPerPixel * 100000).toFixed(0);
+        ctx.fillText(`Skala: 1:${scaleRatio}`, sidebarContentX, currentY);
+        currentY += 14;
+      }
+
+      currentY += 8;
+
+      // ===== REFERENCES BOX =====
+      currentY = drawSectionTitle('Referensi:', currentY);
+      currentY += 8;
+
+      ctx.fillStyle = '#333333';
+      ctx.font = '9px Arial, sans-serif';
+      ctx.textAlign = 'left';
+
+      const sidebarReferences = [
+        'Peta Jaringan Rute/Lyn Mikrolet Eksisting Kota Surabaya, ITS',
+        'Peta GOBIS - Dishub Kota Surabaya',
+        'Status Ekonomi Sosial (SES) Kota Surabaya - BPS'
+      ];
+
+      sidebarReferences.forEach((ref, idx) => {
+        const maxWidth = sidebarWidth - 45;
+        const words = ref.split(' ');
+        let line = '';
+        const refLines: string[] = [];
+
+        words.forEach(word => {
+          const testLine = line + word + ' ';
+          const metrics = ctx.measureText(testLine);
+
+          if (metrics.width > maxWidth) {
+            if (line) {
+              refLines.push(line.trim());
+            }
+            line = word + ' ';
+          } else {
+            line = testLine;
+          }
+        });
+
+        if (line) {
+          refLines.push(line.trim());
+        }
+
+        // Draw numbered references
+        refLines.forEach((refLine, lineIdx) => {
+          if (lineIdx === 0) {
+            ctx.fillText(`${idx + 1}. ${refLine}`, sidebarContentX, currentY);
+          } else {
+            ctx.fillText(`   ${refLine}`, sidebarContentX, currentY);
+          }
+          currentY += 11;
+        });
+
+        if (idx < sidebarReferences.length - 1) {
+          currentY += 4;
+        }
+      });
+
+      if (includeAttribution) {
+        currentY += 6;
+        ctx.fillStyle = '#666666';
+        ctx.font = '8px Arial, sans-serif';
+        ctx.fillText('© OpenStreetMap contributors', sidebarContentX, currentY);
+      }
+
+      // Convert to appropriate format
+      console.log('Converting canvas to image...');
+      const imageFormat = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const quality = format === 'jpeg' ? 0.95 : undefined;
+
+      let dataUrl = '';
+      try {
+        dataUrl = exportCanvas.toDataURL(imageFormat, quality);
+        console.log('Canvas converted successfully, data URL length:', dataUrl.length);
+      } catch (e) {
+        console.error('Failed to convert canvas to data URL:', e);
+        throw e;
+      }
 
       if (format === 'png' || format === 'jpeg') {
-        // Simple image export
+        console.log('Initiating download for format:', format);
         const link = document.createElement('a');
-        link.download = `${title.replace(/\s+/g, '_')}.${format}`;
+        const filename = `${imageName.replace(/\s+/g, '_')}.${format}`;
+        link.download = filename;
         link.href = dataUrl;
+
+        // Append to body, click, then remove
+        document.body.appendChild(link);
+        console.log('Clicking download link for:', filename);
         link.click();
+        document.body.removeChild(link);
+        console.log('Download link clicked');
       } else if (format === 'pdf') {
         alert('PDF export requires additional library (jsPDF). Feature coming soon!');
       }
 
+      // Cleanup: Remove index map
+      try {
+        indexMap.remove();
+        document.body.removeChild(indexMapContainer);
+        console.log('Index map cleaned up');
+      } catch (e) {
+        console.warn('Could not cleanup index map:', e);
+      }
+
+      console.log('Export completed successfully');
       alert('Map exported successfully!');
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Failed to export map. Please try again.');
+      alert(`Failed to export map: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -1039,7 +1749,7 @@ class Dashboard {
     const groupContent = document.createElement('div');
     groupContent.className = 'layer-group-content';
     groupContent.id = groupId;
-    groupContent.style.cssText = 'background: white; transition: max-height 0.3s ease, opacity 0.3s ease;';
+    groupContent.style.cssText = 'background: white; transition: max-height 0.3s ease, opacity 0.3s ease; max-height: 400px;';
 
     // Toggle collapse on header click
     let isCollapsed = false;
@@ -1053,7 +1763,7 @@ class Dashboard {
       } else {
         groupContent.style.maxHeight = '1000px';
         groupContent.style.opacity = '1';
-        groupContent.style.overflow = 'visible';
+        groupContent.style.overflow = 'auto';
         collapseIcon.style.transform = 'rotate(0deg)';
       }
       // Save collapse state
