@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/error.middleware';
 import authRoutes from './routes/auth.routes';
 import layersRoutes from './routes/layers.routes';
 import analysisRoutes from './routes/analysis.routes';
+import routingRoutes from './routes/routing.routes';
 import { startWorker } from './queues/worker';
 
 // Load environment variables
@@ -34,6 +35,7 @@ app.get('/health', (req: Request, res: Response) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/layers', layersRoutes);
 app.use('/api/analysis', analysisRoutes);
+app.use('/api/routing', routingRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

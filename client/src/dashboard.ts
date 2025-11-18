@@ -1,6 +1,8 @@
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AnalysisPanel } from './components/analysis-panel';
+import { RoutingPanel } from './components/routing-panel';
+import { ExportPanel } from './components/export-panel';
 
 // Types
 interface User {
@@ -27,6 +29,9 @@ class Dashboard {
   private activeLayers: Map<number, string> = new Map();
   private layerColors: string[] = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
   private analysisPanel: AnalysisPanel | null = null;
+  private routingPanel: RoutingPanel | null = null;
+  private exportPanel: ExportPanel | null = null;
+  private geolocationMode: boolean = false;
   private leftSidebarCollapsed: boolean = false;
   private rightPanelCollapsed: boolean = false;
 
@@ -80,6 +85,19 @@ class Dashboard {
     this.analysisPanel.setOnResultCreated((layerId) => {
       this.loadResultLayer(layerId);
     });
+
+    // Create and mount routing panel
+    this.routingPanel = new RoutingPanel(this.authToken, this.map);
+    const routingPanelElement = this.routingPanel.render();
+    document.body.appendChild(routingPanelElement);
+
+    // Create and mount export panel
+    this.exportPanel = new ExportPanel();
+    const exportPanelElement = this.exportPanel.render();
+    document.body.appendChild(exportPanelElement);
+
+    // Connect export callback to existing export function
+    this.exportPanel.setExportCallback(() => this.exportMap());
   }
 
   /**
@@ -271,10 +289,22 @@ class Dashboard {
 
         // Handle page navigation
         const page = item.getAttribute('data-page');
+
+        // Hide all panels first
+        if (this.analysisPanel) this.analysisPanel.hide();
+        if (this.routingPanel) this.routingPanel.hide();
+        if (this.exportPanel) this.exportPanel.hide();
+        this.disableGeolocationMode();
+
+        // Show appropriate panel based on selection
         if (page === 'spatial-analysis' && this.analysisPanel) {
           this.analysisPanel.show();
-        } else if (this.analysisPanel) {
-          this.analysisPanel.hide();
+        } else if (page === 'find-routes' && this.routingPanel) {
+          this.routingPanel.show();
+        } else if (page === 'geolocation') {
+          this.enableGeolocationMode();
+        } else if (page === 'export-map' && this.exportPanel) {
+          this.exportPanel.show();
         }
       });
     });
@@ -1235,7 +1265,7 @@ class Dashboard {
         drawX = borderWidth + (mapWidth - (2 * borderWidth) - drawWidth) / 2;
       }
 
-      // Draw the main map canvas first
+      // Draw the main map first
       ctx.drawImage(
         mainCanvas,
         drawX,
@@ -1244,18 +1274,24 @@ class Dashboard {
         drawHeight
       );
 
-      // ===== ADD GRID AND TICK MARKS ON TOP OF MAP FOR POSITIONAL REFERENCE =====
-      // Get map bounds to calculate grid
-      const mapBounds = this.map.getBounds();
-      const gridSpacing = 0.5; // Fixed 0.5 degree increments
+      // ===== CREATE GRID OVERLAY ON SEPARATE CANVAS =====
+      const gridCanvas = document.createElement('canvas');
+      gridCanvas.width = drawWidth;
+      gridCanvas.height = drawHeight;
+      const gridCtx = gridCanvas.getContext('2d');
+      if (!gridCtx) {
+        throw new Error('Could not get grid canvas context');
+      }
 
-      // Calculate grid bounds
+      // Get map bounds for grid calculation
+      const mapBounds = this.map.getBounds();
+      const gridSpacing = 0.5;
+
       const westBound = mapBounds.getWest();
       const eastBound = mapBounds.getEast();
       const southBound = mapBounds.getSouth();
       const northBound = mapBounds.getNorth();
 
-      // Calculate grid start points aligned to 0.5 degree boundaries
       const minLng = Math.floor(westBound * 2) / 2;
       const maxLng = Math.ceil(eastBound * 2) / 2;
       const minLat = Math.floor(southBound * 2) / 2;
@@ -1264,23 +1300,24 @@ class Dashboard {
       const lngRange = eastBound - westBound;
       const latRange = northBound - southBound;
 
-      const mapLeft = drawX;
-      const mapRight = drawX + drawWidth;
-      const mapTop = drawY;
-      const mapBottom = drawY + drawHeight;
+      // Canvas-relative coordinates (0,0 is top-left of grid)
+      const mapLeft = 0;
+      const mapRight = drawWidth;
+      const mapTop = 0;
+      const mapBottom = drawHeight;
 
-      // Draw grid lines ON TOP of map with good visibility
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'; // White with 70% opacity for visibility over map
-      ctx.lineWidth = 1.2;
+      // Draw grid lines on separate canvas
+      gridCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      gridCtx.lineWidth = 1.2;
 
       // Longitude grid lines (vertical)
       for (let lng = minLng; lng <= maxLng; lng += gridSpacing) {
         const pixelX = mapLeft + ((lng - westBound) / lngRange) * drawWidth;
         if (pixelX >= mapLeft && pixelX <= mapRight) {
-          ctx.beginPath();
-          ctx.moveTo(pixelX, mapTop);
-          ctx.lineTo(pixelX, mapBottom);
-          ctx.stroke();
+          gridCtx.beginPath();
+          gridCtx.moveTo(pixelX, mapTop);
+          gridCtx.lineTo(pixelX, mapBottom);
+          gridCtx.stroke();
         }
       }
 
@@ -1288,48 +1325,44 @@ class Dashboard {
       for (let lat = minLat; lat <= maxLat; lat += gridSpacing) {
         const pixelY = mapTop + ((northBound - lat) / latRange) * drawHeight;
         if (pixelY >= mapTop && pixelY <= mapBottom) {
-          ctx.beginPath();
-          ctx.moveTo(mapLeft, pixelY);
-          ctx.lineTo(mapRight, pixelY);
-          ctx.stroke();
+          gridCtx.beginPath();
+          gridCtx.moveTo(mapLeft, pixelY);
+          gridCtx.lineTo(mapRight, pixelY);
+          gridCtx.stroke();
         }
       }
 
-      // Draw tick marks on borders
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.lineWidth = 1.5;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
-      ctx.font = 'bold 9px Arial, sans-serif';
+      // Draw tick marks on grid canvas
+      gridCtx.strokeStyle = '#000000';
+      gridCtx.lineWidth = 1.5;
+      gridCtx.fillStyle = '#000000';
+      gridCtx.font = 'bold 9px Arial, sans-serif';
 
-      // Longitude tick marks and labels (bottom border)
-      ctx.textAlign = 'center';
+      // Longitude tick marks and labels (bottom)
+      gridCtx.textAlign = 'center';
       for (let lng = minLng; lng <= maxLng; lng += gridSpacing) {
         const pixelX = mapLeft + ((lng - westBound) / lngRange) * drawWidth;
-
-        // Draw small tick mark at bottom edge
-        ctx.beginPath();
-        ctx.moveTo(pixelX, mapBottom - 3);
-        ctx.lineTo(pixelX, mapBottom);
-        ctx.stroke();
-
-        // Draw label below tick
-        ctx.fillText(lng.toFixed(1) + '°', pixelX, mapBottom + 14);
+        gridCtx.beginPath();
+        gridCtx.moveTo(pixelX, mapBottom - 4);
+        gridCtx.lineTo(pixelX, mapBottom);
+        gridCtx.stroke();
+        gridCtx.fillText(lng.toFixed(1) + '°', pixelX, mapBottom + 12);
       }
 
-      // Latitude tick marks and labels (left border)
-      ctx.textAlign = 'right';
+      // Latitude tick marks and labels (left)
+      gridCtx.textAlign = 'right';
+      gridCtx.textBaseline = 'middle';
       for (let lat = minLat; lat <= maxLat; lat += gridSpacing) {
         const pixelY = mapTop + ((northBound - lat) / latRange) * drawHeight;
-
-        // Draw small tick mark at left edge
-        ctx.beginPath();
-        ctx.moveTo(mapLeft, pixelY);
-        ctx.lineTo(mapLeft + 3, pixelY);
-        ctx.stroke();
-
-        // Draw label to the left
-        ctx.fillText(lat.toFixed(1) + '°', mapLeft - 8, pixelY + 3);
+        gridCtx.beginPath();
+        gridCtx.moveTo(mapLeft, pixelY);
+        gridCtx.lineTo(mapLeft + 4, pixelY);
+        gridCtx.stroke();
+        gridCtx.fillText(lat.toFixed(1) + '°', mapLeft - 6, pixelY);
       }
+
+      // Overlay the grid canvas on top of the main map
+      ctx.drawImage(gridCanvas, drawX, drawY);
 
       // ===== INJECT SCALE AND NORTH ARROW INSIDE MAIN MAP (bottom-right corner) =====
       // These are drawn DIRECTLY ON TOP of the main map
@@ -2318,6 +2351,142 @@ class Dashboard {
     }
 
     return response.json();
+  }
+
+  /**
+   * Enable Geolocation mode - clicking on map shows coordinate popup
+   */
+  private enableGeolocationMode(): void {
+    this.geolocationMode = true;
+    this.map.getCanvas().style.cursor = 'crosshair';
+
+    // Show notification
+    const notification = document.createElement('div');
+    notification.id = 'geolocation-notification';
+    notification.style.cssText = `
+      position: absolute;
+      top: 80px;
+      left: 270px;
+      background: #3498db;
+      color: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 1000;
+      font-size: 14px;
+    `;
+    notification.innerHTML = `
+      <strong>📍 Geolocation Mode Active</strong><br>
+      <span style="font-size: 12px;">Click anywhere on the map to see coordinates and location information</span>
+    `;
+    document.body.appendChild(notification);
+
+    // Add click handler
+    this.map.on('click', this.handleGeolocationClick);
+  }
+
+  /**
+   * Disable Geolocation mode
+   */
+  private disableGeolocationMode(): void {
+    if (!this.geolocationMode) return;
+
+    this.geolocationMode = false;
+    this.map.getCanvas().style.cursor = '';
+
+    // Remove notification
+    const notification = document.getElementById('geolocation-notification');
+    if (notification) notification.remove();
+
+    // Remove click handler
+    this.map.off('click', this.handleGeolocationClick);
+  }
+
+  /**
+   * Handle map click in geolocation mode
+   */
+  private handleGeolocationClick = (e: maplibregl.MapMouseEvent) => {
+    if (!this.geolocationMode) return;
+
+    const { lng, lat } = e.lngLat;
+
+    // Create popup with comprehensive location info
+    const popupContent = `
+      <div style="font-family: sans-serif; min-width: 250px;">
+        <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 8px;">
+          📍 Location Information
+        </h3>
+
+        <div style="font-size: 13px; line-height: 1.8;">
+          <div style="margin-bottom: 12px;">
+            <strong style="color: #34495e;">Coordinates (DD):</strong><br>
+            <span style="color: #7f8c8d; font-family: monospace; background: #f8f9fa; padding: 4px 8px; border-radius: 3px; display: inline-block; margin-top: 4px;">
+              Lat: ${lat.toFixed(6)}°<br>
+              Lon: ${lng.toFixed(6)}°
+            </span>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <strong style="color: #34495e;">Coordinates (DMS):</strong><br>
+            <span style="color: #7f8c8d; font-size: 12px;">
+              Lat: ${this.convertToDMS(lat, 'lat')}<br>
+              Lon: ${this.convertToDMS(lng, 'lon')}
+            </span>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <strong style="color: #34495e;">Zoom Level:</strong>
+            <span style="color: #7f8c8d;">${this.map.getZoom().toFixed(2)}</span>
+          </div>
+
+          <div style="margin-top: 15px; padding-top: 12px; border-top: 1px solid #ecf0f1;">
+            <button onclick="navigator.clipboard.writeText('${lat.toFixed(6)}, ${lng.toFixed(6)}')"
+              style="
+                width: 100%;
+                padding: 8px;
+                background: #3498db;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+                transition: background 0.2s;
+              "
+              onmouseover="this.style.background='#2980b9'"
+              onmouseout="this.style.background='#3498db'"
+            >
+              📋 Copy Coordinates
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    new maplibregl.Popup({
+      closeButton: true,
+      closeOnClick: false,
+      maxWidth: '350px'
+    })
+      .setLngLat(e.lngLat)
+      .setHTML(popupContent)
+      .addTo(this.map);
+  };
+
+  /**
+   * Convert decimal degrees to DMS (Degrees Minutes Seconds)
+   */
+  private convertToDMS(decimal: number, type: 'lat' | 'lon'): string {
+    const absolute = Math.abs(decimal);
+    const degrees = Math.floor(absolute);
+    const minutesDecimal = (absolute - degrees) * 60;
+    const minutes = Math.floor(minutesDecimal);
+    const seconds = ((minutesDecimal - minutes) * 60).toFixed(2);
+
+    const direction = type === 'lat'
+      ? (decimal >= 0 ? 'N' : 'S')
+      : (decimal >= 0 ? 'E' : 'W');
+
+    return `${degrees}° ${minutes}' ${seconds}" ${direction}`;
   }
 }
 
