@@ -1,14 +1,15 @@
-# MapID Web GIS - Backend API
+# MAPID WebGIS - Backend API
 
-Node.js + Express + PostgreSQL + PostGIS backend for the MapID Web GIS Dashboard.
+Node.js + Express + PostgreSQL + PostGIS backend for the MAPID WebGIS Dashboard with spatial analysis, routing, and job queue capabilities.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js 16+
+- Node.js 20+
 - npm or yarn
-- PostgreSQL 12+ with PostGIS extension
+- PostgreSQL 16+ with PostGIS 3.4 extension
+- Redis 7+ (for BullMQ job queue)
 - Docker (optional, for containerized setup)
 
 ### Installation
@@ -85,8 +86,22 @@ server/
 ### Layers (Protected)
 
 - **GET** `/api/layers/default` - Get all default layers
+- **GET** `/api/layers/all/list` - Get all layers (user + default)
 - **GET** `/api/layers/:layerId/features` - Get layer features as GeoJSON
 - **POST** `/api/layers/upload` - Upload a new layer with GeoJSON
+- **DELETE** `/api/layers/:id` - Delete a layer
+
+### Analysis (Protected)
+
+- **POST** `/api/analysis/buffer` - Create buffer analysis
+- **POST** `/api/analysis/intersection` - Intersect two layers
+- **POST** `/api/analysis/union` - Union two layers
+- **GET** `/api/analysis/status/:jobId` - Check analysis job status
+- **GET** `/api/analysis/result/:jobId` - Get analysis result GeoJSON
+
+### Routing (Protected)
+
+- **POST** `/api/routing/find-route` - Find route between two points using pgRouting
 
 ### Health
 
@@ -104,6 +119,14 @@ JWT_SECRET=your-super-secret-key-change-in-production
 # Server
 PORT=3000
 NODE_ENV=development
+
+# Redis (for BullMQ job queue)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+
+# CORS
+CORS_ORIGIN=http://localhost:5173
 ```
 
 ## Database Schema
@@ -158,22 +181,32 @@ NODE_ENV=development
 
 TODO: Set up Jest or Mocha for unit and integration tests
 
-## Docker
+## Docker Deployment
 
-### Build Docker Image
+### Local Development (Full Stack)
 
 ```bash
-docker build -t mapid-webgis-server .
+# Start PostgreSQL + PostGIS + Redis + Server
+docker-compose up -d
+
+# View logs
+docker-compose logs -f server
+
+# Stop all services
+docker-compose down
 ```
 
-### Run with docker-compose
+### Railway Production Deployment
 
-From the project root:
-```bash
-docker-compose up
-```
+Railway automatically detects the `Dockerfile` and builds/deploys the image.
 
-This will start both PostgreSQL and the Node.js backend.
+**Required Environment Variables in Railway:**
+- `DATABASE_URL`: Railway PostgreSQL connection string with PostGIS
+- `REDIS_HOST`: Railway Redis hostname
+- `REDIS_PORT`: 6379
+- `JWT_SECRET`: Secure random secret key
+- `CORS_ORIGIN`: Your Vercel client URL (e.g., https://your-app.vercel.app)
+- `NODE_ENV`: production
 
 ## Security
 
