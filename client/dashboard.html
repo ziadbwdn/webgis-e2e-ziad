@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SuROCKboyoMap Dashboard</title>
+  <title>MAPID SuROCKboyoMap Dashboard</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.css">
   <style>
     * {
@@ -483,14 +483,14 @@
       </button>
 
       <div class="sidebar-header">
-        <h2>SuROCKboyoMap</h2>
+        <h2>MAPID SuROCKboyoMap</h2>
         <p class="user-info">Welcome, <span id="user-name">User</span></p>
       </div>
       
       <nav class="sidebar-nav">
-        <a href="#" class="nav-item active" data-page="map">
-          <span class="icon">🗺️</span>
-          <span>Map</span>
+        <a href="/home.html" class="nav-item">
+          <span class="icon">🏠</span>
+          <span>Home</span>
         </a>
         <a href="#" class="nav-item" data-page="spatial-analysis">
           <span class="icon">🔧</span>
@@ -504,17 +504,9 @@
           <span class="icon">📍</span>
           <span>Geolocation</span>
         </a>
-        <a href="#" class="nav-item" data-page="statistics">
-          <span class="icon">📊</span>
-          <span>Statistics</span>
-        </a>
         <a href="#" class="nav-item" data-page="export-map">
           <span class="icon">📥</span>
           <span>Export Map</span>
-        </a>
-        <a href="#" class="nav-item" data-page="downloads">
-          <span class="icon">⬇️</span>
-          <span>Downloads</span>
         </a>
       </nav>
       
@@ -580,7 +572,61 @@
             <div class="empty-state">Loading layers...</div>
           </div>
         </div>
-        
+
+        <!-- Static Default Layers -->
+        <div class="panel-section">
+          <h3>Default Layers</h3>
+          <div class="checkbox-group">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px;">
+              <input type="checkbox" id="population-density-toggle" style="cursor: pointer;">
+              <span>📊 Population Density</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px;">
+              <input type="checkbox" id="economic-status-toggle" style="cursor: pointer;">
+              <span>💰 Economic Status</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px;">
+              <input type="checkbox" id="old-routes-toggle" style="cursor: pointer;">
+              <span>🚌 Old Public Routes</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="recent-routes-toggle" style="cursor: pointer;">
+              <span>🚍 Recent Routes</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Grid Controls -->
+        <div class="panel-section">
+          <h3>Grid Overlay</h3>
+          <div class="checkbox-group">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="grid-toggle" style="cursor: pointer;">
+              <span>Show Coordinate Grid</span>
+            </label>
+          </div>
+          <div id="grid-customization" style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 4px; display: none;">
+            <div style="margin-bottom: 8px;">
+              <label style="font-size: 12px; color: #7f8c8d;">Grid Color:</label>
+              <select id="grid-color" style="width: 100%; padding: 5px; margin-top: 4px; border-radius: 4px; border: 1px solid #7f8c8d;">
+                <option value="rgba(255, 255, 255, 0.8)">White</option>
+                <option value="rgba(0, 0, 0, 0.8)">Black</option>
+                <option value="rgba(255, 0, 0, 0.8)">Red</option>
+                <option value="rgba(0, 255, 0, 0.8)">Green</option>
+                <option value="rgba(0, 0, 255, 0.8)">Blue</option>
+                <option value="rgba(255, 255, 0, 0.8)">Yellow</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size: 12px; color: #7f8c8d;">Opacity: <span id="grid-opacity-value">80%</span></label>
+              <input type="range" id="grid-opacity" min="10" max="100" value="80" style="width: 100%; margin-top: 4px;">
+            </div>
+            <div style="margin-top: 8px; font-size: 11px; color: #95a5a6;">
+              <em>Grid spacing adjusts automatically with zoom level</em>
+            </div>
+          </div>
+        </div>
+
         <!-- Map Tools -->
         <div class="panel-section">
           <h3>Map Tools</h3>
@@ -609,61 +655,11 @@
           </div>
         </div>
 
-        <!-- Legend & Export Tabs -->
+        <!-- Legend -->
         <div class="panel-section">
-          <div class="tab-headers">
-            <button class="tab-header active" data-tab="legend-tab">Legend</button>
-            <button class="tab-header" data-tab="export-tab">Map Export</button>
-          </div>
-
-          <!-- Legend Tab -->
-          <div class="tab-content active" id="legend-tab">
-            <div id="legend" class="legend">
-              <div class="empty-state">No active layers</div>
-            </div>
-          </div>
-
-          <!-- Export Tab -->
-          <div class="tab-content" id="export-tab">
-            <div class="export-options">
-              <div class="export-group">
-                <label>Title:</label>
-                <input type="text" id="export-title" class="export-input" placeholder="Map Title">
-              </div>
-              <div class="export-group">
-                <label>Format:</label>
-                <select id="export-format" class="export-select">
-                  <option value="png">PNG Image</option>
-                  <option value="jpeg">JPEG Image</option>
-                  <option value="pdf">PDF Document</option>
-                </select>
-              </div>
-              <div class="export-group">
-                <label>Resolution:</label>
-                <select id="export-resolution" class="export-select">
-                  <option value="72">Screen (72 DPI)</option>
-                  <option value="150">Standard (150 DPI)</option>
-                  <option value="300" selected>High (300 DPI)</option>
-                </select>
-              </div>
-              <div class="export-group">
-                <label>
-                  <input type="checkbox" id="export-legend" checked>
-                  Include Legend
-                </label>
-                <label>
-                  <input type="checkbox" id="export-scale" checked>
-                  Include Scale
-                </label>
-                <label>
-                  <input type="checkbox" id="export-attribution" checked>
-                  Include Attribution
-                </label>
-              </div>
-              <button class="export-btn" id="export-map-btn">
-                <span class="icon">📥</span> Export Map
-              </button>
-            </div>
+          <h3>Legend</h3>
+          <div id="legend" class="legend">
+            <div class="empty-state">No active layers</div>
           </div>
         </div>
 

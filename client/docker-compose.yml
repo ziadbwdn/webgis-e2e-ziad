@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  # Client Application (Local Development Only)
+  # Note: Vercel deployment does NOT use Docker
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mapid-client
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+    ports:
+      - "80:80"
+    networks:
+      - mapid-network
+    restart: unless-stopped
+
+networks:
+  mapid-network:
+    driver: bridge

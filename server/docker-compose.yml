@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with PostGIS Extension
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: mapid-postgres
+    environment:
+      POSTGRES_USER: webgisuser
+      POSTGRES_PASSWORD: webgispassword
+      POSTGRES_DB: webgisdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webgisuser -d webgisdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mapid-network
+
+  # Redis for BullMQ Job Queue
+  redis:
+    image: redis:7-alpine
+    container_name: mapid-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mapid-network
+
+  # Application Server
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mapid-server
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://webgisuser:webgispassword@postgres:5432/webgisdb
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mapid-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  mapid-network:
+    driver: bridge

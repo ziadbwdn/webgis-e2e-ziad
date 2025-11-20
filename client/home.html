@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SuROCKboyoMap - Geospatial Solutions in collaboration with MAPID</title>
+  <title>MAPID SuROCKboyoMap - Geospatial Solutions</title>
   <style>
     * {
       margin: 0;
@@ -38,10 +38,18 @@
     }
 
     .logo {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
       font-size: 1.5rem;
       font-weight: bold;
       letter-spacing: 2px;
       color: #64ffda;
+    }
+
+    .logo img {
+      height: 40px;
+      width: auto;
     }
 
     .nav-links {
@@ -59,6 +67,31 @@
 
     .nav-links a:hover {
       color: #64ffda;
+    }
+
+    .nav-actions {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    /* Book Demo button */
+    .demo-btn {
+      background: #64ffda;
+      color: #0a192f;
+      border: none;
+      padding: 0.6rem 1.2rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.3s;
+    }
+
+    .demo-btn:hover {
+      background: #52e0c8;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(100, 255, 218, 0.3);
     }
 
     /* Logout button in navbar */
@@ -221,19 +254,116 @@
         width: 100%;
       }
     }
+
+    /* Demo Modal */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 2000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(5px);
+    }
+
+    .modal.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-content {
+      background: #1a2847;
+      padding: 2.5rem;
+      border-radius: 12px;
+      max-width: 450px;
+      width: 90%;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      background: transparent;
+      border: none;
+      color: #64ffda;
+      font-size: 1.5rem;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .modal-close:hover {
+      transform: rotate(90deg);
+    }
+
+    .modal h2 {
+      color: #64ffda;
+      margin-bottom: 1.5rem;
+      font-size: 1.8rem;
+    }
+
+    .modal-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+    }
+
+    .modal-form input {
+      padding: 0.8rem;
+      border: 2px solid #64ffda;
+      background: rgba(10, 25, 47, 0.5);
+      color: white;
+      border-radius: 6px;
+      font-size: 1rem;
+      transition: all 0.3s;
+    }
+
+    .modal-form input:focus {
+      outline: none;
+      border-color: #52e0c8;
+      box-shadow: 0 0 10px rgba(100, 255, 218, 0.3);
+    }
+
+    .modal-submit {
+      background: #64ffda;
+      color: #0a192f;
+      padding: 0.9rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .modal-submit:hover {
+      background: #52e0c8;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(100, 255, 218, 0.4);
+    }
   </style>
 </head>
 <body>
   <!-- Navbar -->
   <nav>
     <div class="container">
-      <div class="logo">SuROCKboyoMap</div>
+      <div class="logo">
+        <img src="/data/logo_mapid_triangle.png" alt="MAPID Logo">
+        <span>MAPID SuROCKboyoMap</span>
+      </div>
       <ul class="nav-links">
         <li><a href="#features">Features</a></li>
         <li><a href="#about">About</a></li>
-        <li><a href="#contact">Contact</a></li>
+        <li><a href="https://github.com/ziadbwdn" target="_blank">Contact</a></li>
       </ul>
-      <button class="logout-btn" id="logoutBtn">Logout</button>
+      <div class="nav-actions">
+        <button class="demo-btn" id="demoBtn">Book a Demo</button>
+        <button class="logout-btn" id="logoutBtn">Logout</button>
+      </div>
     </div>
   </nav>
 
@@ -274,6 +404,18 @@
   <footer>
     <p>&copy; 2025 SuROCKboyoMap in collaboration with MAPID. Geospatial Solutions for Modern Analysis. All rights reserved.</p>
   </footer>
+
+  <!-- Book Demo Modal -->
+  <div id="demoModal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" id="modalClose">&times;</button>
+      <h2>Book a Demo</h2>
+      <form class="modal-form" id="demoForm">
+        <input type="email" placeholder="Your Email Address" required id="demoEmail">
+        <button type="submit" class="modal-submit">Submit Request</button>
+      </form>
+    </div>
+  </div>
 
   <script type="module" src="/src/home.ts"></script>
 </body>

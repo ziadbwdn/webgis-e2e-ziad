@@ -50,6 +50,11 @@ class Dashboard {
   private currentDrawCoordinates: number[][] = [];
   private currentDrawMarkers: maplibregl.Marker[] = [];
 
+  // Grid state
+  private gridEnabled: boolean = false;
+  private gridColor: string = 'rgba(255, 255, 255, 0.8)';
+  private gridOpacity: number = 0.8;
+
   constructor() {
     this.init();
   }
@@ -261,8 +266,8 @@ class Dashboard {
           maxzoom: 19
         }]
       },
-      center: [106.8456, -6.2088], // Jakarta, Indonesia
-      zoom: 5,
+      center: [112.7388, -7.2575], // Surabaya, Indonesia
+      zoom: 12,
       preserveDrawingBuffer: true // Enable canvas export capability
     });
 
@@ -270,7 +275,368 @@ class Dashboard {
     this.map.addControl(new maplibregl.NavigationControl(), 'top-left');
     this.map.addControl(new maplibregl.ScaleControl(), 'bottom-right');
     this.map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), 'top-left');
+
+    // Initialize grid system and static default layers after map loads
+    this.map.on('load', () => {
+      this.initGrid();
+      this.loadStaticDefaultLayers();
+    });
+
+    // Update grid on map movement
+    this.map.on('moveend', () => {
+      if (this.gridEnabled) {
+        this.updateGrid();
+      }
+    });
   }
+
+  // ===== GRID SYSTEM FUNCTIONS =====
+
+  private initGrid() {
+    // Add grid source (empty initially)
+    this.map.addSource('grid-source', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: []
+      }
+    });
+
+    // Add grid lines layer
+    this.map.addLayer({
+      id: 'grid-lines',
+      type: 'line',
+      source: 'grid-source',
+      paint: {
+        'line-color': this.gridColor,
+        'line-width': 1.2
+      },
+      layout: {
+        'visibility': 'none' // Hidden by default
+      }
+    });
+  }
+
+  private calculateGridSpacing(zoom: number): number {
+    // Automatic grid spacing based on zoom level
+    if (zoom >= 16) return 0.01;   // ~1 km
+    if (zoom >= 14) return 0.05;   // ~5 km
+    if (zoom >= 12) return 0.1;    // ~10 km
+    if (zoom >= 10) return 0.25;   // ~25 km
+    if (zoom >= 8) return 0.5;     // ~50 km
+    if (zoom >= 6) return 1;       // ~100 km
+    return 2;                      // ~200 km
+  }
+
+  private generateGridGeoJSON(): GeoJSON.FeatureCollection {
+    const bounds = this.map.getBounds();
+    const zoom = this.map.getZoom();
+    const spacing = this.calculateGridSpacing(zoom);
+
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+
+    const minLng = Math.floor(west / spacing) * spacing;
+    const maxLng = Math.ceil(east / spacing) * spacing;
+    const minLat = Math.floor(south / spacing) * spacing;
+    const maxLat = Math.ceil(north / spacing) * spacing;
+
+    const features: GeoJSON.Feature[] = [];
+
+    // Generate vertical lines (longitude)
+    for (let lng = minLng; lng <= maxLng; lng += spacing) {
+      if (lng >= west && lng <= east) {
+        features.push({
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [lng, south],
+              [lng, north]
+            ]
+          }
+        });
+      }
+    }
+
+    // Generate horizontal lines (latitude)
+    for (let lat = minLat; lat <= maxLat; lat += spacing) {
+      if (lat >= south && lat <= north) {
+        features.push({
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [west, lat],
+              [east, lat]
+            ]
+          }
+        });
+      }
+    }
+
+    return {
+      type: 'FeatureCollection',
+      features
+    };
+  }
+
+  private updateGrid() {
+    const source = this.map.getSource('grid-source') as maplibregl.GeoJSONSource;
+    if (source) {
+      source.setData(this.generateGridGeoJSON());
+    }
+  }
+
+  public toggleGrid(enabled: boolean) {
+    this.gridEnabled = enabled;
+    const visibility = enabled ? 'visible' : 'none';
+
+    if (this.map.getLayer('grid-lines')) {
+      this.map.setLayoutProperty('grid-lines', 'visibility', visibility);
+    }
+
+    if (enabled) {
+      this.updateGrid();
+    }
+
+    // Save preference
+    localStorage.setItem('gridEnabled', enabled.toString());
+  }
+
+  public updateGridStyle(color: string, opacity: number) {
+    this.gridColor = color;
+    this.gridOpacity = opacity;
+
+    const colorWithOpacity = color.replace(/[\d.]+\)$/g, `${opacity})`);
+
+    if (this.map.getLayer('grid-lines')) {
+      this.map.setPaintProperty('grid-lines', 'line-color', colorWithOpacity);
+    }
+
+    // Save preferences
+    localStorage.setItem('gridColor', color);
+    localStorage.setItem('gridOpacity', opacity.toString());
+  }
+
+  // ===== END GRID SYSTEM FUNCTIONS =====
+
+  // ===== STATIC DEFAULT LAYERS =====
+
+  private async loadStaticDefaultLayers() {
+    try {
+      // Load all 4 default layers
+      await Promise.all([
+        this.loadPopulationDensityLayer(),
+        this.loadEconomicStatusLayer(),
+        this.loadOldPublicRoutesLayer(),
+        this.loadRecentRoutesLayer()
+      ]);
+      console.log('Static default layers loaded successfully');
+    } catch (error) {
+      console.error('Failed to load static default layers:', error);
+    }
+  }
+
+  private async loadPopulationDensityLayer() {
+    try {
+      const response = await fetch('/data/STATUS EKONOMI DAN SOSIAL - SOCIOECONOMIC STATUS (SES) KOTA SURABAYA TAHUN 2024 IMPORTED AT 1_NOV_2025.geojson');
+      const geojson = await response.json();
+
+      // Calculate population density for each feature using Turf.js
+      const { area } = await import('@turf/turf');
+
+      geojson.features.forEach((feature: any) => {
+        const areaKm2 = area(feature) / 1000000; // Convert m² to km²
+        const population = feature.properties['JUMLAH PENDUDUK'] || 0;
+        feature.properties['POPULATION_DENSITY'] = areaKm2 > 0 ? population / areaKm2 : 0;
+      });
+
+      // Add source
+      this.map.addSource('population-density', {
+        type: 'geojson',
+        data: geojson
+      });
+
+      // Add fill layer with color based on density
+      this.map.addLayer({
+        id: 'population-density-fill',
+        type: 'fill',
+        source: 'population-density',
+        paint: {
+          'fill-color': [
+            'interpolate',
+            ['linear'],
+            ['get', 'POPULATION_DENSITY'],
+            0, '#fee5d9',
+            5000, '#fcae91',
+            10000, '#fb6a4a',
+            15000, '#de2d26',
+            20000, '#a50f15'
+          ],
+          'fill-opacity': 0.6
+        },
+        layout: {
+          'visibility': 'none' // Hidden by default
+        }
+      });
+
+      // Add outline layer
+      this.map.addLayer({
+        id: 'population-density-outline',
+        type: 'line',
+        source: 'population-density',
+        paint: {
+          'line-color': '#999',
+          'line-width': 1
+        },
+        layout: {
+          'visibility': 'none' // Hidden by default
+        }
+      });
+
+      console.log('Population Density layer loaded');
+    } catch (error) {
+      console.error('Failed to load Population Density layer:', error);
+    }
+  }
+
+  private async loadEconomicStatusLayer() {
+    try {
+      const response = await fetch('/data/STATUS EKONOMI DAN SOSIAL - SOCIOECONOMIC STATUS (SES) KOTA SURABAYA TAHUN 2024 IMPORTED AT 1_NOV_2025.geojson');
+      const geojson = await response.json();
+
+      // Add source
+      this.map.addSource('economic-status', {
+        type: 'geojson',
+        data: geojson
+      });
+
+      // Add fill layer with color based on socioeconomic status
+      this.map.addLayer({
+        id: 'economic-status-fill',
+        type: 'fill',
+        source: 'economic-status',
+        paint: {
+          'fill-color': [
+            'match',
+            ['get', 'SOCIOECONOMIC STATUS'],
+            'Atas', '#2ecc71',    // Green for high status
+            'Menengah', '#f39c12', // Orange for medium status
+            'Bawah', '#e74c3c',    // Red for low status
+            '#cccccc'              // Gray for unknown
+          ],
+          'fill-opacity': 0.6
+        },
+        layout: {
+          'visibility': 'none' // Hidden by default
+        }
+      });
+
+      // Add outline layer
+      this.map.addLayer({
+        id: 'economic-status-outline',
+        type: 'line',
+        source: 'economic-status',
+        paint: {
+          'line-color': '#999',
+          'line-width': 1
+        },
+        layout: {
+          'visibility': 'none' // Hidden by default
+        }
+      });
+
+      console.log('Economic Status layer loaded');
+    } catch (error) {
+      console.error('Failed to load Economic Status layer:', error);
+    }
+  }
+
+  private async loadOldPublicRoutesLayer() {
+    try {
+      const response = await fetch('/data/jalur_lyn_lama.geojson');
+      const geojson = await response.json();
+
+      // Add source
+      this.map.addSource('old-public-routes', {
+        type: 'geojson',
+        data: geojson
+      });
+
+      // Add line layer
+      this.map.addLayer({
+        id: 'old-public-routes-line',
+        type: 'line',
+        source: 'old-public-routes',
+        paint: {
+          'line-color': '#9b59b6', // Purple color for old routes
+          'line-width': 3,
+          'line-opacity': 0.7
+        },
+        layout: {
+          'visibility': 'none' // Hidden by default
+        }
+      });
+
+      console.log('Old Public Routes layer loaded');
+    } catch (error) {
+      console.error('Failed to load Old Public Routes layer:', error);
+    }
+  }
+
+  private async loadRecentRoutesLayer() {
+    try {
+      const response = await fetch('/data/all-routes_v2.geojson');
+      const geojson = await response.json();
+
+      // Add source
+      this.map.addSource('recent-routes', {
+        type: 'geojson',
+        data: geojson
+      });
+
+      // Add line layer using the color attribute from the data
+      this.map.addLayer({
+        id: 'recent-routes-line',
+        type: 'line',
+        source: 'recent-routes',
+        paint: {
+          'line-color': ['get', 'color'], // Use color from properties
+          'line-width': 4,
+          'line-opacity': 0.8
+        },
+        layout: {
+          'visibility': 'none' // Hidden by default
+        }
+      });
+
+      console.log('Recent Routes layer loaded');
+    } catch (error) {
+      console.error('Failed to load Recent Routes layer:', error);
+    }
+  }
+
+  private toggleStaticLayer(layerPrefix: string, enabled: boolean) {
+    const visibility = enabled ? 'visible' : 'none';
+
+    // Toggle all layers with this prefix
+    const layerIds = this.map.getStyle().layers
+      .filter(layer => layer.id.startsWith(layerPrefix))
+      .map(layer => layer.id);
+
+    layerIds.forEach(layerId => {
+      if (this.map.getLayer(layerId)) {
+        this.map.setLayoutProperty(layerId, 'visibility', visibility);
+      }
+    });
+  }
+
+  // ===== END STATIC DEFAULT LAYERS =====
 
   private initEventListeners() {
     // Logout
@@ -330,28 +696,140 @@ class Dashboard {
     document.getElementById('refresh-layers-btn')!.addEventListener('click', async () => {
       await this.loadDefaultLayers();
     });
+
+    // Static default layers toggles
+    const populationDensityToggle = document.getElementById('population-density-toggle') as HTMLInputElement;
+    if (populationDensityToggle) {
+      populationDensityToggle.addEventListener('change', (e) => {
+        const enabled = (e.target as HTMLInputElement).checked;
+        this.toggleStaticLayer('population-density', enabled);
+      });
+    }
+
+    const economicStatusToggle = document.getElementById('economic-status-toggle') as HTMLInputElement;
+    if (economicStatusToggle) {
+      economicStatusToggle.addEventListener('change', (e) => {
+        const enabled = (e.target as HTMLInputElement).checked;
+        this.toggleStaticLayer('economic-status', enabled);
+      });
+    }
+
+    const oldRoutesToggle = document.getElementById('old-routes-toggle') as HTMLInputElement;
+    if (oldRoutesToggle) {
+      oldRoutesToggle.addEventListener('change', (e) => {
+        const enabled = (e.target as HTMLInputElement).checked;
+        this.toggleStaticLayer('old-public-routes', enabled);
+      });
+    }
+
+    const recentRoutesToggle = document.getElementById('recent-routes-toggle') as HTMLInputElement;
+    if (recentRoutesToggle) {
+      recentRoutesToggle.addEventListener('change', (e) => {
+        const enabled = (e.target as HTMLInputElement).checked;
+        this.toggleStaticLayer('recent-routes', enabled);
+      });
+    }
+
+    // Grid toggle - with null check to prevent breaking other event listeners
+    const gridToggle = document.getElementById('grid-toggle') as HTMLInputElement;
+    const gridCustomization = document.getElementById('grid-customization');
+
+    if (gridToggle && gridCustomization) {
+      gridToggle.addEventListener('change', (e) => {
+        const enabled = (e.target as HTMLInputElement).checked;
+        this.toggleGrid(enabled);
+        gridCustomization.style.display = enabled ? 'block' : 'none';
+      });
+
+      // Grid color selector
+      const gridColor = document.getElementById('grid-color');
+      if (gridColor) {
+        gridColor.addEventListener('change', (e) => {
+          const color = (e.target as HTMLSelectElement).value;
+          const gridOpacityEl = document.getElementById('grid-opacity') as HTMLInputElement;
+          const opacity = gridOpacityEl ? parseInt(gridOpacityEl.value) / 100 : 0.8;
+          this.updateGridStyle(color, opacity);
+        });
+      }
+
+      // Grid opacity slider
+      const gridOpacity = document.getElementById('grid-opacity') as HTMLInputElement;
+      const gridOpacityValue = document.getElementById('grid-opacity-value');
+
+      if (gridOpacity && gridOpacityValue) {
+        gridOpacity.addEventListener('input', (e) => {
+          const opacity = parseInt((e.target as HTMLInputElement).value) / 100;
+          gridOpacityValue.textContent = `${Math.round(opacity * 100)}%`;
+
+          const gridColorEl = document.getElementById('grid-color') as HTMLSelectElement;
+          const color = gridColorEl ? gridColorEl.value : 'rgba(255, 255, 255, 0.8)';
+          this.updateGridStyle(color, opacity);
+        });
+      }
+
+      // Load saved grid preferences
+      const savedGridEnabled = localStorage.getItem('gridEnabled') === 'true';
+      if (savedGridEnabled) {
+        gridToggle.checked = true;
+        gridCustomization.style.display = 'block';
+        this.toggleGrid(true);
+      }
+
+      const savedGridColor = localStorage.getItem('gridColor');
+      const gridColorEl = document.getElementById('grid-color') as HTMLSelectElement;
+      if (savedGridColor && gridColorEl) {
+        gridColorEl.value = savedGridColor;
+      }
+
+      const savedGridOpacity = localStorage.getItem('gridOpacity');
+      if (savedGridOpacity && gridOpacity && gridOpacityValue) {
+        const opacityPercent = Math.round(parseFloat(savedGridOpacity) * 100);
+        gridOpacity.value = opacityPercent.toString();
+        gridOpacityValue.textContent = `${opacityPercent}%`;
+      }
+    }
   }
 
   private initCollapsibleSidebars() {
     // Left sidebar toggle
-    const leftSidebar = document.getElementById('left-sidebar')!;
-    const toggleLeftBtn = document.getElementById('toggle-left-sidebar')!;
+    const leftSidebar = document.getElementById('left-sidebar');
+    const toggleLeftBtn = document.getElementById('toggle-left-sidebar');
+
+    console.log('Left sidebar element:', leftSidebar);
+    console.log('Left toggle button:', toggleLeftBtn);
+
+    if (!leftSidebar || !toggleLeftBtn) {
+      console.error('Left sidebar elements not found!');
+      return;
+    }
 
     toggleLeftBtn.addEventListener('click', () => {
+      console.log('Left button clicked!');
       this.leftSidebarCollapsed = !this.leftSidebarCollapsed;
       leftSidebar.classList.toggle('collapsed', this.leftSidebarCollapsed);
       this.saveSidebarState();
 
       // Update button icon
-      const icon = toggleLeftBtn.querySelector('.icon')!;
-      icon.textContent = this.leftSidebarCollapsed ? '▶' : '◀';
+      const icon = toggleLeftBtn.querySelector('.icon');
+      if (icon) {
+        icon.textContent = this.leftSidebarCollapsed ? '▶' : '◀';
+      }
     });
 
     // Right panel toggle
-    const rightPanel = document.getElementById('right-panel')!;
-    const toggleRightBtn = document.getElementById('toggle-right-panel')!;
+    const rightPanel = document.getElementById('right-panel');
+    const toggleRightBtn = document.getElementById('toggle-right-panel');
+
+    console.log('Right panel element:', rightPanel);
+    console.log('Right toggle button:', toggleRightBtn);
+
+    if (!rightPanel || !toggleRightBtn) {
+      console.error('Right panel elements not found!');
+      return;
+    }
 
     toggleRightBtn.addEventListener('click', () => {
+      console.log('Right button clicked!');
       this.rightPanelCollapsed = !this.rightPanelCollapsed;
       rightPanel.classList.toggle('collapsed', this.rightPanelCollapsed);
       this.saveSidebarState();

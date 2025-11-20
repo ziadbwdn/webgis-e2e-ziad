@@ -30,3 +30,33 @@ logoutBtn?.addEventListener('click', () => {
   // Redirect to login
   window.location.href = '/';
 });
+
+// Book Demo Modal
+const demoBtn = document.getElementById('demoBtn');
+const demoModal = document.getElementById('demoModal');
+const modalClose = document.getElementById('modalClose');
+const demoForm = document.getElementById('demoForm') as HTMLFormElement;
+
+demoBtn?.addEventListener('click', () => {
+  demoModal?.classList.add('active');
+});
+
+modalClose?.addEventListener('click', () => {
+  demoModal?.classList.remove('active');
+});
+
+demoModal?.addEventListener('click', (e) => {
+  if (e.target === demoModal) {
+    demoModal.classList.remove('active');
+  }
+});
+
+demoForm?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const emailInput = document.getElementById('demoEmail') as HTMLInputElement;
+  const email = emailInput?.value;
+
+  alert(`Thank you! We'll contact you at ${email} to schedule your demo.`);
+  demoModal?.classList.remove('active');
+  demoForm.reset();
+});
