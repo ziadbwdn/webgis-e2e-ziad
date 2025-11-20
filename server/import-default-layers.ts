@@ -25,9 +25,9 @@ async function importDefaultLayers() {
     console.log('Starting default layers import...\n');
 
     // Step 1: Delete existing empty default layers (keep only ID 1 - Indonesia OSM Base)
-    console.log('Step 1: Removing existing empty default layers (IDs 2-5)...');
-    await client.query('DELETE FROM layers WHERE id IN (2, 3, 4, 5)');
-    console.log('✓ Removed empty default layers\n');
+    console.log('Step 1: Removing existing default layers...');
+    const deleteResult = await client.query('DELETE FROM layers WHERE is_default = true AND id != 1');
+    console.log(`✓ Removed ${deleteResult.rowCount} existing default layers\n`);
 
     // Step 2: Import Population Density Layer
     console.log('Step 2: Importing Population Density layer...');
