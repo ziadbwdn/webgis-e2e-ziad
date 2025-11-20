@@ -56,6 +56,9 @@ async function importDefaultLayers() {
     // Insert features
     let count = 0;
     for (const feature of sesData.features) {
+      if (count === 0) {
+        console.log(`Sample feature properties:`, feature.properties);
+      }
       await client.query(
         `INSERT INTO layer_features (layer_id, geom, properties)
          VALUES ($1, ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)), $3)`,

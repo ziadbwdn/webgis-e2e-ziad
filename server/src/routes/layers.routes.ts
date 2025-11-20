@@ -63,4 +63,20 @@ router.delete(
   })
 );
 
+// GET /api/layers/:layerId/attributes
+router.get(
+  '/:layerId/attributes',
+  asyncHandler(async (req: Request, res: Response) => {
+    await LayersController.getLayerAttributes(req, res);
+  })
+);
+
+// PUT /api/layers/:layerId/style
+router.put(
+  '/:layerId/style',
+  asyncHandler(async (req: Request, res: Response) => {
+    await LayersController.updateLayerStyle(req, res);
+  })
+);
+
 export default router;

@@ -140,4 +140,62 @@ export class LayersController {
       layerId: id,
     });
   }
+
+  static async getLayerAttributes(req: Request, res: Response): Promise<void> {
+    const { layerId } = req.params;
+    const id = parseInt(layerId, 10);
+
+    if (isNaN(id)) {
+      throw new AppError(400, 'Invalid layer ID');
+    }
+
+    // Check if layer exists
+    const layer = await LayerModel.getLayerById(id);
+    if (!layer) {
+      throw new AppError(404, 'Layer not found');
+    }
+
+    // Get attributes from layer features
+    const attributes = await LayerModel.getLayerAttributes(id);
+
+    res.status(200).json({
+      layerId: id,
+      layerName: layer.name,
+      attributes,
+    });
+  }
+
+  static async updateLayerStyle(req: Request, res: Response): Promise<void> {
+    const { layerId } = req.params;
+    const { styleConfig } = req.body;
+    const userId = req.userId;
+    const id = parseInt(layerId, 10);
+
+    if (isNaN(id)) {
+      throw new AppError(400, 'Invalid layer ID');
+    }
+
+    if (!styleConfig) {
+      throw new AppError(400, 'Style configuration is required');
+    }
+
+    // Check if layer exists
+    const layer = await LayerModel.getLayerById(id);
+    if (!layer) {
+      throw new AppError(404, 'Layer not found');
+    }
+
+    // Users can update style for default layers or their own layers
+    if (!layer.is_default && layer.created_by !== userId) {
+      throw new AppError(403, 'You do not have permission to update this layer');
+    }
+
+    // Update layer style
+    const updatedLayer = await LayerModel.updateLayerStyle(id, styleConfig);
+
+    res.status(200).json({
+      message: 'Layer style updated successfully',
+      layer: updatedLayer,
+    });
+  }
 }

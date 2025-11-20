@@ -272,4 +272,44 @@ export class LayerModel {
       .join(',');
     return `MULTIPOLYGON(${polygons})`;
   }
+
+  static async getLayerAttributes(layerId: number): Promise<string[]> {
+    const pool = getPool();
+    try {
+      // Get one feature to extract attribute names
+      const result = await pool.query(
+        `SELECT properties FROM layer_features WHERE layer_id = $1 LIMIT 1`,
+        [layerId]
+      );
+
+      if (result.rows.length === 0) {
+        return [];
+      }
+
+      const properties = result.rows[0].properties || {};
+      return Object.keys(properties).sort();
+    } catch (error) {
+      console.error('Error fetching layer attributes:', error);
+      throw error;
+    }
+  }
+
+  static async updateLayerStyle(layerId: number, styleConfig: any): Promise<Layer> {
+    const pool = getPool();
+    try {
+      const result = await pool.query(
+        'UPDATE layers SET style_config = $1 WHERE id = $2 RETURNING *',
+        [JSON.stringify(styleConfig), layerId]
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error('Layer not found');
+      }
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error updating layer style:', error);
+      throw error;
+    }
+  }
 }
