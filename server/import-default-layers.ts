@@ -40,15 +40,33 @@ async function importDefaultLayers() {
       feature.properties['POPULATION_DENSITY'] = areaKm2 > 0 ? population / areaKm2 : 0;
     });
 
+    const popDensityStyle = {
+      styleType: 'interpolate',
+      geometryType: 'polygon',
+      attribute: 'POPULATION_DENSITY',
+      interpolation: 'linear',
+      stops: [
+        { value: 0, color: '#ffffcc' },
+        { value: 5000, color: '#c2e699' },
+        { value: 10000, color: '#78c679' },
+        { value: 15000, color: '#31a354' },
+        { value: 20000, color: '#006837' }
+      ],
+      fillOpacity: 0.7,
+      strokeColor: '#333',
+      strokeWidth: 1
+    };
+
     const popDensityResult = await client.query(
-      `INSERT INTO layers (name, description, type, is_default, created_by)
-       VALUES ($1, $2, $3, $4, NULL)
+      `INSERT INTO layers (name, description, type, is_default, created_by, style_config)
+       VALUES ($1, $2, $3, $4, NULL, $5)
        RETURNING id`,
       [
         'Population Density',
         'Population density calculated from SES data (people per km²)',
         'polygon',
-        true
+        true,
+        JSON.stringify(popDensityStyle)
       ]
     );
     const popDensityLayerId = popDensityResult.rows[0].id;
@@ -74,15 +92,35 @@ async function importDefaultLayers() {
 
     // Step 3: Import Economic Status Layer
     console.log('Step 3: Importing Economic Status layer...');
+
+    const economicStyle = {
+      styleType: 'categorical',
+      geometryType: 'polygon',
+      attribute: 'SOCIOECONOMIC STATUS',
+      categories: [
+        { value: 'Atas', color: '#1a9850' },
+        { value: 'Menengah Atas', color: '#91cf60' },
+        { value: 'Menengah', color: '#fee08b' },
+        { value: 'Menengah Bawah', color: '#fc8d59' },
+        { value: 'Bawah', color: '#d73027' },
+        { value: 'Tidak Memiliki Data', color: '#cccccc' }
+      ],
+      defaultColor: '#999999',
+      fillOpacity: 0.7,
+      strokeColor: '#333',
+      strokeWidth: 1
+    };
+
     const economicResult = await client.query(
-      `INSERT INTO layers (name, description, type, is_default, created_by)
-       VALUES ($1, $2, $3, $4, NULL)
+      `INSERT INTO layers (name, description, type, is_default, created_by, style_config)
+       VALUES ($1, $2, $3, $4, NULL, $5)
        RETURNING id`,
       [
         'Economic Status',
         'Socioeconomic status classification for Surabaya',
         'polygon',
-        true
+        true,
+        JSON.stringify(economicStyle)
       ]
     );
     const economicLayerId = economicResult.rows[0].id;
