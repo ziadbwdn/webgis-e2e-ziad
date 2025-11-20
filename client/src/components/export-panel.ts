@@ -48,7 +48,7 @@ export class ExportPanel {
         <div class="export-options" style="display: flex; flex-direction: column; gap: 15px;">
           <div class="export-group" style="display: flex; flex-direction: column; gap: 6px;">
             <label style="font-size: 13px; font-weight: 500; color: #2c3e50;">Map Title:</label>
-            <input type="text" id="export-title-input" placeholder="Enter map title" style="
+            <input type="text" id="export-title-input" placeholder="Enter map title (required)" style="
               padding: 10px;
               border: 1px solid #ddd;
               border-radius: 4px;
@@ -86,6 +86,7 @@ export class ExportPanel {
               <option value="72">Screen (72 DPI)</option>
               <option value="150">Standard (150 DPI)</option>
               <option value="300" selected>High (300 DPI)</option>
+              <option value="600">Very High (600 DPI)</option>
             </select>
           </div>
 
@@ -151,22 +152,44 @@ export class ExportPanel {
 
   private executeExport(): void {
     // Get values from panel and update original export controls
-    const title = (document.getElementById('export-title-input') as HTMLInputElement)?.value || 'Map Export';
+    const titleInput = document.getElementById('export-title-input') as HTMLInputElement;
+    const title = titleInput?.value?.trim() || '';
+
+    console.log('Export panel executeExport called');
+    console.log('Title input element:', titleInput);
+    console.log('Title value:', title);
+
+    // Validate that title is not empty
+    if (!title) {
+      console.log('Title is empty, showing alert');
+      alert('Please enter a map title before exporting.');
+      return;
+    }
+    console.log('Title validation passed');
+
     const format = (document.getElementById('export-format-select') as HTMLSelectElement)?.value || 'png';
     const resolution = (document.getElementById('export-resolution-select') as HTMLSelectElement)?.value || '300';
     const legend = (document.getElementById('export-legend-check') as HTMLInputElement)?.checked ?? true;
     const scale = (document.getElementById('export-scale-check') as HTMLInputElement)?.checked ?? true;
     const attribution = (document.getElementById('export-attribution-check') as HTMLInputElement)?.checked ?? true;
 
-    // Update the original export form controls (in right panel)
-    const originalTitle = document.getElementById('export-title') as HTMLInputElement;
+    // Create or update the hidden export-title input element
+    let originalTitle = document.getElementById('export-title') as HTMLInputElement;
+    if (!originalTitle) {
+      originalTitle = document.createElement('input');
+      originalTitle.id = 'export-title';
+      originalTitle.type = 'hidden';
+      document.body.appendChild(originalTitle);
+    }
+    originalTitle.value = title;
+
+    // Update other original export form controls (in right panel) if they exist
     const originalFormat = document.getElementById('export-format') as HTMLSelectElement;
     const originalResolution = document.getElementById('export-resolution') as HTMLSelectElement;
     const originalLegend = document.getElementById('export-legend') as HTMLInputElement;
     const originalScale = document.getElementById('export-scale') as HTMLInputElement;
     const originalAttribution = document.getElementById('export-attribution') as HTMLInputElement;
 
-    if (originalTitle) originalTitle.value = title;
     if (originalFormat) originalFormat.value = format;
     if (originalResolution) originalResolution.value = resolution;
     if (originalLegend) originalLegend.checked = legend;

@@ -24,6 +24,7 @@ export interface Layer {
   created_by: number | null;
   created_at: Date;
   updated_at: Date;
+  style_config?: any; // JSONB style configuration
 }
 
 export interface LayerFeature {

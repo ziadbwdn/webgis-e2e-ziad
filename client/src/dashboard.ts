@@ -3,6 +3,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { AnalysisPanel } from './components/analysis-panel';
 import { RoutingPanel } from './components/routing-panel';
 import { ExportPanel } from './components/export-panel';
+import { LayerStyleParser } from './components/layer-style-parser';
+import { LegendGenerator } from './components/legend-generator';
 
 // Types
 interface User {
@@ -17,6 +19,7 @@ interface Layer {
   description: string;
   type: string;
   is_default: boolean;
+  style_config?: any; // Style configuration JSON
 }
 
 // API Configuration
@@ -27,6 +30,7 @@ class Dashboard {
   private authToken: string | null = null;
   private currentUser: User | null = null;
   private activeLayers: Map<number, string> = new Map();
+  private layerMetadata: Map<number, Layer> = new Map(); // Store full layer info for legends
   private layerColors: string[] = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
   private analysisPanel: AnalysisPanel | null = null;
   private routingPanel: RoutingPanel | null = null;
@@ -276,10 +280,9 @@ class Dashboard {
     this.map.addControl(new maplibregl.ScaleControl(), 'bottom-right');
     this.map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), 'top-left');
 
-    // Initialize grid system and static default layers after map loads
+    // Initialize grid system after map loads
     this.map.on('load', () => {
       this.initGrid();
-      this.loadStaticDefaultLayers();
     });
 
     // Update grid on map movement
@@ -425,219 +428,6 @@ class Dashboard {
 
   // ===== END GRID SYSTEM FUNCTIONS =====
 
-  // ===== STATIC DEFAULT LAYERS =====
-
-  private async loadStaticDefaultLayers() {
-    try {
-      // Load all 4 default layers
-      await Promise.all([
-        this.loadPopulationDensityLayer(),
-        this.loadEconomicStatusLayer(),
-        this.loadOldPublicRoutesLayer(),
-        this.loadRecentRoutesLayer()
-      ]);
-      console.log('Static default layers loaded successfully');
-    } catch (error) {
-      console.error('Failed to load static default layers:', error);
-    }
-  }
-
-  private async loadPopulationDensityLayer() {
-    try {
-      const response = await fetch('/data/STATUS EKONOMI DAN SOSIAL - SOCIOECONOMIC STATUS (SES) KOTA SURABAYA TAHUN 2024 IMPORTED AT 1_NOV_2025.geojson');
-      const geojson = await response.json();
-
-      // Calculate population density for each feature using Turf.js
-      const { area } = await import('@turf/turf');
-
-      geojson.features.forEach((feature: any) => {
-        const areaKm2 = area(feature) / 1000000; // Convert m² to km²
-        const population = feature.properties['JUMLAH PENDUDUK'] || 0;
-        feature.properties['POPULATION_DENSITY'] = areaKm2 > 0 ? population / areaKm2 : 0;
-      });
-
-      // Add source
-      this.map.addSource('population-density', {
-        type: 'geojson',
-        data: geojson
-      });
-
-      // Add fill layer with color based on density
-      this.map.addLayer({
-        id: 'population-density-fill',
-        type: 'fill',
-        source: 'population-density',
-        paint: {
-          'fill-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'POPULATION_DENSITY'],
-            0, '#fee5d9',
-            5000, '#fcae91',
-            10000, '#fb6a4a',
-            15000, '#de2d26',
-            20000, '#a50f15'
-          ],
-          'fill-opacity': 0.6
-        },
-        layout: {
-          'visibility': 'none' // Hidden by default
-        }
-      });
-
-      // Add outline layer
-      this.map.addLayer({
-        id: 'population-density-outline',
-        type: 'line',
-        source: 'population-density',
-        paint: {
-          'line-color': '#999',
-          'line-width': 1
-        },
-        layout: {
-          'visibility': 'none' // Hidden by default
-        }
-      });
-
-      console.log('Population Density layer loaded');
-    } catch (error) {
-      console.error('Failed to load Population Density layer:', error);
-    }
-  }
-
-  private async loadEconomicStatusLayer() {
-    try {
-      const response = await fetch('/data/STATUS EKONOMI DAN SOSIAL - SOCIOECONOMIC STATUS (SES) KOTA SURABAYA TAHUN 2024 IMPORTED AT 1_NOV_2025.geojson');
-      const geojson = await response.json();
-
-      // Add source
-      this.map.addSource('economic-status', {
-        type: 'geojson',
-        data: geojson
-      });
-
-      // Add fill layer with color based on socioeconomic status
-      this.map.addLayer({
-        id: 'economic-status-fill',
-        type: 'fill',
-        source: 'economic-status',
-        paint: {
-          'fill-color': [
-            'match',
-            ['get', 'SOCIOECONOMIC STATUS'],
-            'Atas', '#2ecc71',    // Green for high status
-            'Menengah', '#f39c12', // Orange for medium status
-            'Bawah', '#e74c3c',    // Red for low status
-            '#cccccc'              // Gray for unknown
-          ],
-          'fill-opacity': 0.6
-        },
-        layout: {
-          'visibility': 'none' // Hidden by default
-        }
-      });
-
-      // Add outline layer
-      this.map.addLayer({
-        id: 'economic-status-outline',
-        type: 'line',
-        source: 'economic-status',
-        paint: {
-          'line-color': '#999',
-          'line-width': 1
-        },
-        layout: {
-          'visibility': 'none' // Hidden by default
-        }
-      });
-
-      console.log('Economic Status layer loaded');
-    } catch (error) {
-      console.error('Failed to load Economic Status layer:', error);
-    }
-  }
-
-  private async loadOldPublicRoutesLayer() {
-    try {
-      const response = await fetch('/data/jalur_lyn_lama.geojson');
-      const geojson = await response.json();
-
-      // Add source
-      this.map.addSource('old-public-routes', {
-        type: 'geojson',
-        data: geojson
-      });
-
-      // Add line layer
-      this.map.addLayer({
-        id: 'old-public-routes-line',
-        type: 'line',
-        source: 'old-public-routes',
-        paint: {
-          'line-color': '#9b59b6', // Purple color for old routes
-          'line-width': 3,
-          'line-opacity': 0.7
-        },
-        layout: {
-          'visibility': 'none' // Hidden by default
-        }
-      });
-
-      console.log('Old Public Routes layer loaded');
-    } catch (error) {
-      console.error('Failed to load Old Public Routes layer:', error);
-    }
-  }
-
-  private async loadRecentRoutesLayer() {
-    try {
-      const response = await fetch('/data/all-routes_v2.geojson');
-      const geojson = await response.json();
-
-      // Add source
-      this.map.addSource('recent-routes', {
-        type: 'geojson',
-        data: geojson
-      });
-
-      // Add line layer using the color attribute from the data
-      this.map.addLayer({
-        id: 'recent-routes-line',
-        type: 'line',
-        source: 'recent-routes',
-        paint: {
-          'line-color': ['get', 'color'], // Use color from properties
-          'line-width': 4,
-          'line-opacity': 0.8
-        },
-        layout: {
-          'visibility': 'none' // Hidden by default
-        }
-      });
-
-      console.log('Recent Routes layer loaded');
-    } catch (error) {
-      console.error('Failed to load Recent Routes layer:', error);
-    }
-  }
-
-  private toggleStaticLayer(layerPrefix: string, enabled: boolean) {
-    const visibility = enabled ? 'visible' : 'none';
-
-    // Toggle all layers with this prefix
-    const layerIds = this.map.getStyle().layers
-      .filter(layer => layer.id.startsWith(layerPrefix))
-      .map(layer => layer.id);
-
-    layerIds.forEach(layerId => {
-      if (this.map.getLayer(layerId)) {
-        this.map.setLayoutProperty(layerId, 'visibility', visibility);
-      }
-    });
-  }
-
-  // ===== END STATIC DEFAULT LAYERS =====
-
   private initEventListeners() {
     // Logout
     document.getElementById('logout-btn')!.addEventListener('click', () => {
@@ -696,39 +486,6 @@ class Dashboard {
     document.getElementById('refresh-layers-btn')!.addEventListener('click', async () => {
       await this.loadDefaultLayers();
     });
-
-    // Static default layers toggles
-    const populationDensityToggle = document.getElementById('population-density-toggle') as HTMLInputElement;
-    if (populationDensityToggle) {
-      populationDensityToggle.addEventListener('change', (e) => {
-        const enabled = (e.target as HTMLInputElement).checked;
-        this.toggleStaticLayer('population-density', enabled);
-      });
-    }
-
-    const economicStatusToggle = document.getElementById('economic-status-toggle') as HTMLInputElement;
-    if (economicStatusToggle) {
-      economicStatusToggle.addEventListener('change', (e) => {
-        const enabled = (e.target as HTMLInputElement).checked;
-        this.toggleStaticLayer('economic-status', enabled);
-      });
-    }
-
-    const oldRoutesToggle = document.getElementById('old-routes-toggle') as HTMLInputElement;
-    if (oldRoutesToggle) {
-      oldRoutesToggle.addEventListener('change', (e) => {
-        const enabled = (e.target as HTMLInputElement).checked;
-        this.toggleStaticLayer('old-public-routes', enabled);
-      });
-    }
-
-    const recentRoutesToggle = document.getElementById('recent-routes-toggle') as HTMLInputElement;
-    if (recentRoutesToggle) {
-      recentRoutesToggle.addEventListener('change', (e) => {
-        const enabled = (e.target as HTMLInputElement).checked;
-        this.toggleStaticLayer('recent-routes', enabled);
-      });
-    }
 
     // Grid toggle - with null check to prevent breaking other event listeners
     const gridToggle = document.getElementById('grid-toggle') as HTMLInputElement;
@@ -918,10 +675,13 @@ class Dashboard {
       this.clearAllDrawings();
     });
 
-    // Map export
-    document.getElementById('export-map-btn')!.addEventListener('click', () => {
-      this.exportMap();
-    });
+    // Map export (optional button, ExportPanel handles its own UI)
+    const exportMapBtn = document.getElementById('export-map-btn');
+    if (exportMapBtn) {
+      exportMapBtn.addEventListener('click', () => {
+        this.exportMap();
+      });
+    }
 
     // Initialize drawing sources and layers
     this.map.on('load', () => {
@@ -1278,8 +1038,14 @@ class Dashboard {
         // Reload layers to show the new one
         await this.loadDefaultLayers();
 
-        // Auto-load the new layer to map
-        await this.addLayerToMap(response.layer.id, response.layer.name);
+        // Auto-load the new layer to map (convert response to Layer object)
+        await this.addLayerToMap({
+          id: response.layer.id,
+          name: response.layer.name,
+          description: '',
+          type: response.layer.type || 'unknown',
+          is_default: false
+        });
       } else {
         console.error('Unexpected response format:', response);
         alert('Layer may have been saved, but could not confirm. Please refresh the page.');
@@ -1402,15 +1168,28 @@ class Dashboard {
   }
 
   private async exportMap() {
-    // Get image name from input (used as title)
-    const imageName = (document.getElementById('export-title') as HTMLInputElement).value || 'Map Export';
-    const format = (document.getElementById('export-format') as HTMLSelectElement).value;
-    const dpi = parseInt((document.getElementById('export-resolution') as HTMLSelectElement).value);
-    const includeLegend = (document.getElementById('export-legend') as HTMLInputElement).checked;
-    const includeScale = (document.getElementById('export-scale') as HTMLInputElement).checked;
-    const includeAttribution = (document.getElementById('export-attribution') as HTMLInputElement).checked;
+    console.log('=== EXPORT MAP STARTED ===');
+    console.log('Active layers:', Array.from(this.activeLayers.keys()));
+    console.log('Layer metadata:', Array.from(this.layerMetadata.keys()));
 
-    console.log('Export started:', { imageName, format, dpi, includeLegend, includeScale, includeAttribution });
+    // Get user's map title input - this is used for BOTH header title AND filename
+    // Validation happens in the export panel before this function is called
+    const titleElement = document.getElementById('export-title') as HTMLInputElement;
+    console.log('Title element in exportMap:', titleElement);
+    console.log('Title element value:', titleElement?.value);
+    const userTitle = titleElement?.value?.trim() || 'Untitled Map';
+    console.log('Final userTitle:', userTitle);
+
+    // Use the same user input for both map title (in header) and filename
+    const mapTitle = userTitle;
+    const imageName = userTitle;
+    const format = (document.getElementById('export-format') as HTMLSelectElement)?.value || 'png';
+    const dpi = parseInt((document.getElementById('export-resolution') as HTMLSelectElement)?.value || '300');
+    const includeLegend = (document.getElementById('export-legend') as HTMLInputElement)?.checked ?? true;
+    const includeScale = (document.getElementById('export-scale') as HTMLInputElement)?.checked ?? true;
+    const includeAttribution = (document.getElementById('export-attribution') as HTMLInputElement)?.checked ?? true;
+
+    console.log('Export configuration:', { imageName, format, dpi, includeLegend, includeScale, includeAttribution });
 
     try {
       // Wait for map to be fully loaded
@@ -1693,11 +1472,11 @@ class Dashboard {
       ctx.lineWidth = borderWidth;
       ctx.strokeRect(0, 0, exportCanvas.width, headerHeight);
 
-      // Map title (Image Name) - positioned at top left
+      // Map title - positioned at top left
       ctx.font = 'bold 18px Arial, sans-serif';
       ctx.fillStyle = '#000000';
       ctx.textAlign = 'left';
-      ctx.fillText(imageName, padding, padding + 20);  // Top left of page
+      ctx.fillText(mapTitle, padding, padding + 20);  // Top left of page
 
       // Scale info in header (top right)
       if (includeScale) {
@@ -1930,6 +1709,7 @@ class Dashboard {
 
       // ===== LEGEND BOX =====
       if (includeLegend && this.activeLayers.size > 0) {
+        console.log('Drawing legend section...');
         currentY = drawSectionTitle('LEGENDA', currentY);
         currentY += 8;
 
@@ -1944,24 +1724,108 @@ class Dashboard {
           });
         });
 
+        console.log('Checked layers for export:', checkedLayers);
+
+        // Iterate through layers and render their legends
         checkedLayers.forEach((layer) => {
+          console.log(`Rendering legend for layer ${layer.id}: ${layer.name}`);
+          const layerMetadata = this.layerMetadata.get(layer.id);
           const color = this.activeLayers.get(layer.id) || this.layerColors[layerIndex % this.layerColors.length];
 
-          // Draw colored line to represent the layer
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.moveTo(sidebarContentX, currentY - 4);
-          ctx.lineTo(sidebarContentX + 20, currentY - 4);
-          ctx.stroke();
+          // Check if layer has categorical style config
+          if (layerMetadata?.style_config && layerMetadata.style_config.styleType === 'categorical') {
+            const config = layerMetadata.style_config;
+            console.log(`Layer ${layer.id} has categorical config with ${config.categories?.length || 0} categories`);
 
-          // Draw layer name with color annotation format: "layer name (on map)"
-          ctx.fillStyle = '#000000';
-          ctx.font = '11px Arial, sans-serif';
-          ctx.textAlign = 'left';
-          ctx.fillText(`${layer.name} (on map)`, sidebarContentX + 28, currentY);
+            // Draw layer name
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 11px Arial, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(layer.name, sidebarContentX, currentY);
+            currentY += 15;
 
-          currentY += 16;
+            // Draw attribute name
+            ctx.font = '9px Arial, sans-serif';
+            ctx.fillStyle = '#666666';
+            ctx.fillText(config.attribute, sidebarContentX, currentY);
+            currentY += 13;
+
+            // Draw categories in 3-column grid layout
+            const categories = config.categories;
+            const numColumns = 3;
+            const numRows = 5;
+            const itemsPerPage = numColumns * numRows;
+
+            // Column width and spacing
+            const availableWidth = sidebarWidth - 24; // Subtract padding
+            const columnWidth = availableWidth / numColumns;
+            const colorBoxWidth = 12;
+            const colorBoxHeight = 9;
+            const rowHeight = 12;
+            const startY = currentY;
+
+            // Draw categories in columns (fill vertically first, then move to next column)
+            categories.forEach((category: any, index: number) => {
+              const page = Math.floor(index / itemsPerPage);
+              const indexInPage = index % itemsPerPage;
+              const col = Math.floor(indexInPage / numRows);
+              const row = indexInPage % numRows;
+
+              // Calculate position
+              const x = sidebarContentX + (col * columnWidth);
+              const y = startY + (row * rowHeight) + (page * (numRows * rowHeight + 20));
+
+              console.log(`Drawing category: ${category.value} at col ${col}, row ${row}`);
+
+              // Draw color box
+              ctx.fillStyle = category.color;
+              ctx.fillRect(x, y - 8, colorBoxWidth, colorBoxHeight);
+              ctx.strokeStyle = '#999';
+              ctx.lineWidth = 0.5;
+              ctx.strokeRect(x, y - 8, colorBoxWidth, colorBoxHeight);
+
+              // Draw category label (truncate if too long)
+              ctx.fillStyle = '#000000';
+              ctx.font = '8px Arial, sans-serif';
+              ctx.textAlign = 'left';
+
+              const maxLabelWidth = columnWidth - colorBoxWidth - 6;
+              let label = category.value;
+              const labelWidth = ctx.measureText(label).width;
+
+              if (labelWidth > maxLabelWidth) {
+                // Truncate and add ellipsis
+                while (ctx.measureText(label + '...').width > maxLabelWidth && label.length > 0) {
+                  label = label.slice(0, -1);
+                }
+                label += '...';
+              }
+
+              ctx.fillText(label, x + colorBoxWidth + 3, y);
+            });
+
+            // Calculate total height used
+            const totalPages = Math.ceil(categories.length / itemsPerPage);
+            const totalHeight = (numRows * rowHeight * totalPages) + ((totalPages - 1) * 20);
+            currentY += totalHeight + 8;
+          } else {
+            // Fallback: simple colored line for non-categorical layers
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(sidebarContentX, currentY - 4);
+            ctx.lineTo(sidebarContentX + 20, currentY - 4);
+            ctx.stroke();
+
+            // Draw layer name
+            ctx.fillStyle = '#000000';
+            ctx.font = '11px Arial, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${layer.name}`, sidebarContentX + 28, currentY);
+
+            currentY += 16;
+          }
+
           layerIndex++;
         });
 
@@ -2315,7 +2179,7 @@ class Dashboard {
     const checkbox = label.querySelector('input') as HTMLInputElement;
     checkbox.addEventListener('change', async () => {
       if (checkbox.checked) {
-        await this.addLayerToMap(layer.id, layer.name);
+        await this.addLayerToMap(layer);
       } else {
         this.removeLayerFromMap(layer.id);
       }
@@ -2399,10 +2263,10 @@ class Dashboard {
     this.loadDefaultLayers();
   }
 
-  private async addLayerToMap(layerId: number, _layerName: string) {
+  private async addLayerToMap(layer: Layer) {
     try {
-      const geojson = await this.apiRequest(`/layers/${layerId}/features`);
-      const sourceId = `layer-${layerId}`;
+      const geojson = await this.apiRequest(`/layers/${layer.id}/features`);
+      const sourceId = `layer-${layer.id}`;
       const color = this.layerColors[this.activeLayers.size % this.layerColors.length];
 
       // Add source
@@ -2414,79 +2278,34 @@ class Dashboard {
       // Determine geometry type from first feature
       const geometryType = geojson.features?.[0]?.geometry?.type;
 
-      // Add layer(s) based on geometry type
-      switch (geometryType) {
-        case 'Point':
-        case 'MultiPoint':
-          this.map.addLayer({
-            id: `layer-${layerId}-point`,
-            type: 'circle',
-            source: sourceId,
-            paint: {
-              'circle-radius': 6,
-              'circle-color': color,
-              'circle-stroke-width': 2,
-              'circle-stroke-color': '#fff'
-            }
-          });
-          break;
-
-        case 'LineString':
-        case 'MultiLineString':
-          this.map.addLayer({
-            id: `layer-${layerId}-line`,
-            type: 'line',
-            source: sourceId,
-            paint: {
-              'line-color': color,
-              'line-width': 2
-            }
-          });
-          break;
-
-        case 'Polygon':
-        case 'MultiPolygon':
-          // Add fill layer for polygon
-          this.map.addLayer({
-            id: `layer-${layerId}-fill`,
-            type: 'fill',
-            source: sourceId,
-            paint: {
-              'fill-color': color,
-              'fill-opacity': 0.5
-            }
-          });
-          // Add stroke layer for polygon borders
-          this.map.addLayer({
-            id: `layer-${layerId}-stroke`,
-            type: 'line',
-            source: sourceId,
-            paint: {
-              'line-color': color,
-              'line-width': 2
-            }
-          });
-          break;
-
-        default:
-          console.warn(`Unsupported geometry type: ${geometryType}`);
-          // Fallback to line if unknown
-          this.map.addLayer({
-            id: `layer-${layerId}-line`,
-            type: 'line',
-            source: sourceId,
-            paint: {
-              'line-color': color,
-              'line-width': 2
-            }
-          });
+      // Try to apply custom style configuration
+      let styleApplied = false;
+      if (layer.style_config) {
+        styleApplied = LayerStyleParser.applyStyle(
+          this.map,
+          layer.id,
+          sourceId,
+          layer.style_config
+        );
       }
 
-      this.activeLayers.set(layerId, color);
+      // Fallback to generic style if no custom style was applied
+      if (!styleApplied) {
+        LayerStyleParser.applyGenericStyle(
+          this.map,
+          layer.id,
+          sourceId,
+          geometryType,
+          color
+        );
+      }
+
+      this.activeLayers.set(layer.id, color);
+      this.layerMetadata.set(layer.id, layer); // Store full layer info
       this.updateLegend();
 
       // Setup popup for this layer
-      this.setupLayerPopup(layerId, geometryType);
+      this.setupLayerPopup(layer.id, geometryType);
 
     } catch (error) {
       console.error('Failed to add layer:', error);
@@ -2710,32 +2529,27 @@ class Dashboard {
     }
 
     this.activeLayers.delete(layerId);
+    this.layerMetadata.delete(layerId); // Clean up metadata
     this.updateLegend();
   }
 
   private updateLegend() {
     const legendEl = document.getElementById('legend')!;
-    
+
     if (this.activeLayers.size === 0) {
       legendEl.innerHTML = '<div class="empty-state">No active layers</div>';
       return;
     }
 
-    legendEl.innerHTML = '';
-    document.querySelectorAll('#layers-list input:checked').forEach(checkbox => {
-      const input = checkbox as HTMLInputElement;
-      const layerId = parseInt(input.value);
-      const layerName = input.dataset.layerName || 'Unknown';
-      const color = this.activeLayers.get(layerId);
-
-      const item = document.createElement('div');
-      item.className = 'legend-item';
-      item.innerHTML = `
-        <div class="legend-color" style="background: ${color}"></div>
-        <span>${layerName}</span>
-      `;
-      legendEl.appendChild(item);
+    let html = '';
+    this.activeLayers.forEach((color, layerId) => {
+      const layer = this.layerMetadata.get(layerId);
+      if (layer) {
+        html += LegendGenerator.generateLegend(layer.name, layer.style_config, color);
+      }
     });
+
+    legendEl.innerHTML = html;
   }
 
   private async deleteLayer(layerId: number, layerName: string) {
