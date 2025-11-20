@@ -2,10 +2,9 @@ import { Pool } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as turf from '@turf/turf';
+import { databaseConfig } from './src/config/database.config';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:iwakpeyek23@localhost:5432/mapid_webgis'
-});
+const pool = new Pool(databaseConfig);
 
 interface GeoJSONFeature {
   type: string;
