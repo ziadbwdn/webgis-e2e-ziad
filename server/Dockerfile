@@ -4,14 +4,14 @@ FROM node:20-alpine AS build
 # Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy package files from server directory
+COPY server/package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy source code
-COPY . .
+# Copy server source code
+COPY server/ .
 
 # Build TypeScript
 RUN npm run build
@@ -22,8 +22,8 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install production dependencies only
-COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+COPY server/package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy compiled code from build stage
 COPY --from=build /app/dist ./dist
