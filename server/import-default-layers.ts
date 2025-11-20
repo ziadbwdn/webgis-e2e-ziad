@@ -146,15 +146,24 @@ async function importDefaultLayers() {
     const oldRoutesPath = path.join(__dirname, 'data', 'old-public-routes.geojson');
     const oldRoutesData: GeoJSON = JSON.parse(fs.readFileSync(oldRoutesPath, 'utf-8'));
 
+    const oldRoutesStyle = {
+      styleType: 'simple',
+      geometryType: 'line',
+      lineColor: '#3498db',
+      lineWidth: 3,
+      lineOpacity: 0.8
+    };
+
     const oldRoutesResult = await client.query(
-      `INSERT INTO layers (name, description, type, is_default, created_by)
-       VALUES ($1, $2, $3, $4, NULL)
+      `INSERT INTO layers (name, description, type, is_default, created_by, style_config)
+       VALUES ($1, $2, $3, $4, NULL, $5)
        RETURNING id`,
       [
         'Old Public Routes',
         'Historical public transportation routes for Surabaya',
         'linestring',
-        true
+        true,
+        JSON.stringify(oldRoutesStyle)
       ]
     );
     const oldRoutesLayerId = oldRoutesResult.rows[0].id;
@@ -179,15 +188,25 @@ async function importDefaultLayers() {
     const recentRoutesPath = path.join(__dirname, 'data', 'recent-routes.geojson');
     const recentRoutesData: GeoJSON = JSON.parse(fs.readFileSync(recentRoutesPath, 'utf-8'));
 
+    const recentRoutesStyle = {
+      styleType: 'attributeColor',
+      geometryType: 'line',
+      colorAttribute: 'color',
+      labelAttribute: 'title',
+      lineWidth: 4,
+      lineOpacity: 0.9
+    };
+
     const recentRoutesResult = await client.query(
-      `INSERT INTO layers (name, description, type, is_default, created_by)
-       VALUES ($1, $2, $3, $4, NULL)
+      `INSERT INTO layers (name, description, type, is_default, created_by, style_config)
+       VALUES ($1, $2, $3, $4, NULL, $5)
        RETURNING id`,
       [
         'Recent Routes',
         'Current public transportation routes for Surabaya',
         'linestring',
-        true
+        true,
+        JSON.stringify(recentRoutesStyle)
       ]
     );
     const recentRoutesLayerId = recentRoutesResult.rows[0].id;
