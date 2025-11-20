@@ -2266,6 +2266,14 @@ class Dashboard {
   private async addLayerToMap(layer: Layer) {
     try {
       const geojson = await this.apiRequest(`/layers/${layer.id}/features`);
+      console.log(`Features for layer ${layer.id}:`, geojson);
+
+      if (!geojson.features || geojson.features.length === 0) {
+        console.error(`Layer ${layer.id} has no features!`);
+        alert(`Layer "${layer.name}" has no features to display`);
+        return;
+      }
+
       const sourceId = `layer-${layer.id}`;
       const color = this.layerColors[this.activeLayers.size % this.layerColors.length];
 
@@ -2277,6 +2285,7 @@ class Dashboard {
 
       // Determine geometry type from first feature
       const geometryType = geojson.features?.[0]?.geometry?.type;
+      console.log(`Layer ${layer.id} geometry type: ${geometryType}`);
 
       // Try to apply custom style configuration
       let styleApplied = false;

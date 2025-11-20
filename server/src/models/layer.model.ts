@@ -128,6 +128,12 @@ export class LayerModel {
         [layerId]
       );
 
+      console.log(`Fetching features for layer ${layerId}: Found ${result.rows.length} features`);
+
+      if (result.rows.length === 0) {
+        console.warn(`Layer ${layerId} has no features in database!`);
+      }
+
       const features: GeoJSONFeature[] = result.rows.map((row: any) => ({
         type: 'Feature',
         geometry: JSON.parse(row.geometry),
