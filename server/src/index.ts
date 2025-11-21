@@ -10,8 +10,10 @@ import analysisRoutes from './routes/analysis.routes';
 import routingRoutes from './routes/routing.routes';
 import { startWorker } from './queues/worker';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables only in development
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
 
 const app = express();
 
