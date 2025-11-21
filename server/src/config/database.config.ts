@@ -1,7 +1,3 @@
-import dotenv from 'dotenv';
-
-dotenv.config();
-
 export const databaseConfig = {
   connectionString: process.env.DATABASE_URL || 'postgresql://webgisuser:webgispassword@localhost:5432/webgisdb',
   max: 20, // Max connections in pool
