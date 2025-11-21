@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy package files from server directory
 COPY server/package*.json ./
 
-# Install dependencies
-RUN npm ci --omit=dev && npm cache clean --force
+# Install dependencies (including devDependencies for build)
+RUN npm ci && npm cache clean --force
 
 # Copy server source code
 COPY server/ .
