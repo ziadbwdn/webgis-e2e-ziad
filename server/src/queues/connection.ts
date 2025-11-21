@@ -1,55 +1,51 @@
 import { ConnectionOptions } from 'bullmq';
 
-/**
- * Redis connection configuration for BullMQ
- * Implements proper retry logic to prevent infinite retries
- */
-export const redisConnection: ConnectionOptions = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  db: parseInt(process.env.REDIS_DB || '0'),
-
-  // Connection timeout
-  connectTimeout: 5000,
-
-  // Do not retry indefinitely
-  maxRetriesPerRequest: 3,
-
-  // Enable ready check to verify connection
-  enableReadyCheck: true,
-
-  // Exponential backoff retry strategy
-  retryStrategy: (times: number) => {
-    const delay = Math.min(times * 200, 2000); // Start at 200ms, max 2s
-
-    // Stop retrying after 3 attempts
-    if (times > 3) {
-      console.error(`Redis connection failed after ${times} attempts`);
-      return null; // Return null to stop retrying
+// Helper to determine config based on environment
+const getRedisConfig = () => {
+  // 1. PRIORITY: Check for REDIS_URL (Standard on Railway)
+  if (process.env.REDIS_URL) {
+    console.log('DEBUG: Using REDIS_URL from environment');
+    try {
+      const parsedUrl = new URL(process.env.REDIS_URL);
+      return {
+        host: parsedUrl.hostname,
+        port: parseInt(parsedUrl.port),
+        username: parsedUrl.username,
+        password: parsedUrl.password,
+      };
+    } catch (e) {
+      console.error('Failed to parse REDIS_URL, falling back to individual vars');
     }
-
-    console.warn(`Redis retry attempt ${times}, retrying in ${delay}ms`);
-    return delay;
-  },
-
-  // Enable keep-alive to detect disconnections
-  keepAlive: 30000,
-};
-
-/**
- * Validate Redis is configured
- */
-export function validateRedisConfig(): void {
-  console.log('DEBUG: REDIS_HOST env var:', process.env.REDIS_HOST);
-  console.log('DEBUG: REDIS_PORT env var:', process.env.REDIS_PORT);
-  console.log('DEBUG: All REDIS env vars:', Object.keys(process.env).filter(k => k.startsWith('REDIS')));
-
-  const host = process.env.REDIS_HOST || 'localhost';
-  const port = parseInt(process.env.REDIS_PORT || '6379');
-
-  if (!host || isNaN(port)) {
-    throw new Error('Invalid Redis configuration: REDIS_HOST or REDIS_PORT is missing');
   }
 
-  console.log(`Redis configuration: ${host}:${port}`);
+  // 2. FALLBACK: Use individual variables (Standard for Local .env)
+  console.log('DEBUG: Using individual REDIS_HOST/PORT variables');
+  return {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    username: process.env.REDIS_USERNAME,
+    password: process.env.REDIS_PASSWORD,
+  };
+};
+
+const config = getRedisConfig();
+
+export const redisConnection: ConnectionOptions = {
+  host: config.host,
+  port: config.port,
+  username: config.username,
+  password: config.password,
+  
+  // Works locally AND on Railway (fixes IPv6 issues)
+  family: 0, 
+  
+  // Required by BullMQ everywhere
+  maxRetriesPerRequest: null,
+  
+  connectTimeout: 10000,
+};
+
+export function validateRedisConfig(): void {
+    // Simple check to help debug local vs prod
+    console.log(`Redis Connection Configured for host: ${config.host}`);
 }
