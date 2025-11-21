@@ -128,7 +128,7 @@ export class LayerStyleParser {
         type: 'fill',
         source: sourceId,
         paint: {
-          'fill-color': colorExpression,
+          'fill-color': colorExpression as any,
           'fill-opacity': config.fillOpacity ?? 0.6
         }
       });
@@ -151,7 +151,7 @@ export class LayerStyleParser {
         type: 'line',
         source: sourceId,
         paint: {
-          'line-color': colorExpression,
+          'line-color': colorExpression as any,
           'line-width': config.strokeWidth ?? 2
         }
       });
@@ -188,7 +188,7 @@ export class LayerStyleParser {
         type: 'fill',
         source: sourceId,
         paint: {
-          'fill-color': matchExpression,
+          'fill-color': matchExpression as any,
           'fill-opacity': config.fillOpacity ?? 0.6
         }
       });
@@ -211,7 +211,7 @@ export class LayerStyleParser {
         type: 'line',
         source: sourceId,
         paint: {
-          'line-color': matchExpression,
+          'line-color': matchExpression as any,
           'line-width': config.strokeWidth ?? 2
         }
       });
