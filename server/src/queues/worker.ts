@@ -1,6 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { getPool } from '../db/connection';
-import { redisConnection } from './connection';
+import { redisConnection, validateRedisConfig } from './connection';
 import { JobType, JobData } from '../jobs/types';
 import {
   handleBufferJob,
@@ -133,6 +133,9 @@ analysisWorker.on('closed', () => {
  */
 export async function startWorker(): Promise<void> {
   console.log('[Worker] Starting analysis worker...');
+
+  // Validate Redis configuration
+  validateRedisConfig();
 
   // Check that worker is ready
   const isRunning = analysisWorker.isRunning();

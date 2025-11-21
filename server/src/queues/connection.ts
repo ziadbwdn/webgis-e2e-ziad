@@ -40,6 +40,10 @@ export const redisConnection: ConnectionOptions = {
  * Validate Redis is configured
  */
 export function validateRedisConfig(): void {
+  console.log('DEBUG: REDIS_HOST env var:', process.env.REDIS_HOST);
+  console.log('DEBUG: REDIS_PORT env var:', process.env.REDIS_PORT);
+  console.log('DEBUG: All REDIS env vars:', Object.keys(process.env).filter(k => k.startsWith('REDIS')));
+
   const host = process.env.REDIS_HOST || 'localhost';
   const port = parseInt(process.env.REDIS_PORT || '6379');
 
