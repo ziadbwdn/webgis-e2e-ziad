@@ -1,6 +1,5 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { initializePool, testConnection } from './db/connection';
 import { serverConfig } from './config/database.config';
 import { errorHandler } from './middleware/error.middleware';
@@ -9,11 +8,6 @@ import layersRoutes from './routes/layers.routes';
 import analysisRoutes from './routes/analysis.routes';
 import routingRoutes from './routes/routing.routes';
 import { startWorker } from './queues/worker';
-
-// Load environment variables only in development
-if (process.env.NODE_ENV !== 'production') {
-  dotenv.config();
-}
 
 const app = express();
 
