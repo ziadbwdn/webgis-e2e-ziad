@@ -474,7 +474,7 @@ Solution: Change PORT in .env or kill existing process
 
 ## 📞 Contact & Community
 
-**Project Lead:** [Ziad Budi Wildan](https://github.com/ziadbwdn)
+**Author:** [Ziad](https://github.com/ziadbwdn)
 
 **Repository:** [webgis-e2e-ziad](https://github.com/ziadbwdn/webgis-e2e-ziad)
 
