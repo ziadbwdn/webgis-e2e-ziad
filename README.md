@@ -6,7 +6,7 @@
 
 A modern, full-stack geospatial web application for interactive mapping, spatial analysis, and data visualization. Specifically designed for Surabaya, Indonesia with comprehensive GIS capabilities.
 
-**🌐 Live Demo:** Coming Soon
+**🌐 Live Demo:** (https://webgis-e2e-ziad.vercel.app/)
 **📦 Repository:** [webgis-e2e-ziad](https://github.com/ziadbwdn/webgis-e2e-ziad)
 **📖 Documentation:** See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed technical docs
 
