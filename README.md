@@ -8,7 +8,7 @@ A modern, full-stack geospatial web application for interactive mapping, spatial
 
 **🌐 Live Demo:** (https://webgis-e2e-ziad.vercel.app/)
 **📦 Repository:** [webgis-e2e-ziad](https://github.com/ziadbwdn/webgis-e2e-ziad)
-**📖 Documentation:** See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed technical docs
+**📖 Documentation:** (See README.md) for detailed technical docs
 
 ---
 
